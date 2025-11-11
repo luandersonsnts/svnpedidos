@@ -350,19 +350,19 @@ function Home() {
         </div>
       </div>
 
-      <div style={{display:'flex', justifyContent:'flex-end', marginTop:8}}>
-        <button className="btn outline btn-sm" onClick={()=> setShowCats(v=>!v)}>Listar categorias</button>
+      <div className="mobile-only" style={{marginTop:8}}>
+        <button className="btn btn-lg catlist-trigger" onClick={()=> setShowCats(v=>!v)}>Lista de categorias</button>
+        {showCats && (
+          <div className="cats-dropdown" style={{marginTop:10}}>
+            {categories.map(cat => (
+              <div key={cat.id} className="cats-item" onClick={()=> { setSelectedCategory(cat.id); setShowCats(false) }}>
+                <span>{cat.name}</span>
+                <span>›</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-      {showCats && (
-        <div className="cats-dropdown">
-          {categories.map(cat => (
-            <div key={cat.id} className="cats-item" onClick={()=> { setSelectedCategory(cat.id); setShowCats(false) }}>
-              <span>{cat.name}</span>
-              <span>›</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Banner de cupons como na imagem (lado esquerdo, abaixo de destaques) */}
       <div id="categorias" className="section-card" style={{marginTop:12}}>
@@ -376,8 +376,8 @@ function Home() {
         {showCoupons && <CouponsModal onClose={()=> setShowCoupons(false)} />}
       </div>
 
-      {/* Filtros e busca (Mundo Doce) */}
-      <div className="section-card">
+      {/* Filtros e busca (Desktop somente) */}
+      <div className="section-card desktop-only">
         <div className="row" style={{alignItems:'center'}}>
           <div className="field" style={{flex:2}}>
             <label className="muted">Buscar por nome</label>
@@ -407,7 +407,7 @@ function Home() {
 
       {showInfo && <EstablishmentInfoModal onClose={()=> setShowInfo(false)} />}
 
-      <div className="section-card" style={{marginTop:12}}>
+      <div className="section-card desktop-only" style={{marginTop:12}}>
         <div style={{fontWeight:700}}>Categorias</div>
         <div className="grid categories-grid" style={{marginTop:8}}>
           {categories.filter(cat => !categoriesAvailability[cat.id]).map(cat => (
@@ -3187,12 +3187,14 @@ function AdminItems(){
   const [newNotes, setNewNotes] = useState('')
   const [newCatName, setNewCatName] = useState('')
   const [newCatImage, setNewCatImage] = useState('')
+  const [newCatImageError, setNewCatImageError] = useState('')
   const prods = products
   // Edição inline
   const [editingId, setEditingId] = useState(null)
   const [draftName, setDraftName] = useState('')
   const [draftCategory, setDraftCategory] = useState('')
   const [draftProduct, setDraftProduct] = useState(null)
+  const [editImageError, setEditImageError] = useState('')
   // Edição inline de categoria
   const [editingCatId, setEditingCatId] = useState(null)
   const [draftCatName, setDraftCatName] = useState('')
@@ -3211,6 +3213,50 @@ function AdminItems(){
       reader.onerror = () => { setNewImageError('Falha ao ler o arquivo.'); setNewImageData('') }
       reader.readAsDataURL(file)
     } catch(e){ setNewImageError('Erro ao processar imagem.'); setNewImageData('') }
+  }
+
+  const handleNewCatImageChange = (e) => {
+    try {
+      const file = e.target.files && e.target.files[0]
+      if (!file) { setNewCatImage(''); setNewCatImageError(''); return }
+      const okTypes = ['image/jpeg','image/png','image/webp']
+      if (!okTypes.includes(file.type)) { setNewCatImageError('Formato inválido. Use JPG, PNG ou WebP.'); setNewCatImage(''); return }
+      const maxBytes = 5 * 1024 * 1024
+      if (file.size > maxBytes) { setNewCatImageError('Imagem acima de 5MB. Escolha um arquivo menor.'); setNewCatImage(''); return }
+      const reader = new FileReader()
+      reader.onload = () => { setNewCatImage(String(reader.result||'')); setNewCatImageError('') }
+      reader.onerror = () => { setNewCatImageError('Falha ao ler o arquivo.'); setNewCatImage('') }
+      reader.readAsDataURL(file)
+    } catch(e){ setNewCatImageError('Erro ao processar imagem.'); setNewCatImage('') }
+  }
+
+  const handleEditProductImageChange = (e) => {
+    try {
+      const file = e.target.files && e.target.files[0]
+      if (!file) { setEditImageError(''); setDraftProduct(prev=> ({ ...(prev||{}), image: '' })); return }
+      const okTypes = ['image/jpeg','image/png','image/webp']
+      if (!okTypes.includes(file.type)) { setEditImageError('Formato inválido. Use JPG, PNG ou WebP.'); return }
+      const maxBytes = 5 * 1024 * 1024
+      if (file.size > maxBytes) { setEditImageError('Imagem acima de 5MB. Escolha um arquivo menor.'); return }
+      const reader = new FileReader()
+      reader.onload = () => { setDraftProduct(prev=> ({ ...(prev||{}), image: String(reader.result||'') })); setEditImageError('') }
+      reader.onerror = () => { setEditImageError('Falha ao ler o arquivo.') }
+      reader.readAsDataURL(file)
+    } catch(e){ setEditImageError('Erro ao processar imagem.') }
+  }
+
+  const handleEditCatImageChange = (e) => {
+    try {
+      const file = e.target.files && e.target.files[0]
+      if (!file) { setDraftCatImage(''); return }
+      const okTypes = ['image/jpeg','image/png','image/webp']
+      if (!okTypes.includes(file.type)) { setDraftCatImage(''); return }
+      const maxBytes = 5 * 1024 * 1024
+      if (file.size > maxBytes) { setDraftCatImage(''); return }
+      const reader = new FileReader()
+      reader.onload = () => { setDraftCatImage(String(reader.result||'')) }
+      reader.readAsDataURL(file)
+    } catch(e){}
   }
 
   const appendProductAudit = (entry) => {
@@ -3351,7 +3397,7 @@ function AdminItems(){
     if (!name) return
     const id = name.toLowerCase().replace(/[^a-z0-9]+/gi,'-')
     if (cats.some(c=> c.id===id)) { return }
-    const image = newCatImage.trim() || `https://picsum.photos/seed/cat-${id}/400/300`
+    const image = newCatImage || `https://picsum.photos/seed/cat-${id}/400/300`
     fetch(`${apiBase}/api/categorias`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, id, name, image_url: image }) })
       .then(()=> fetch(`${apiBase}/api/categorias?establishment_id=${eid}`).then(r=> r.json()).then(c=>{
         const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || `https://picsum.photos/seed/cat-${x.id}/400/300` }))
@@ -3385,12 +3431,15 @@ function AdminItems(){
               <>
                 <div style={{display:'flex', gap:8, alignItems:'center', flex:1}}>
                   <input style={{flex:2}} value={draftCatName} onChange={(e)=> setDraftCatName(e.target.value)} placeholder="Nome da categoria" />
-                  <input style={{flex:2}} value={draftCatImage} onChange={(e)=> setDraftCatImage(e.target.value)} placeholder="URL da imagem (opcional)" />
+                  <div className="field" style={{flex:2}}>
+                    <label className="muted" htmlFor={`edit-cat-image-${c.id}`}>Imagem (JPG/PNG/WebP)</label>
+                    <input id={`edit-cat-image-${c.id}`} name="editCatImage" aria-label="Imagem da categoria (edição)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleEditCatImageChange} />
+                  </div>
                 </div>
                 <div style={{display:'flex', gap:8}}>
                   <button className="btn" onClick={()=> {
                     const nextName = draftCatName.trim() || c.name
-                    const nextImage = draftCatImage.trim() || c.image || ''
+                    const nextImage = draftCatImage || c.image || ''
                     updateCategory(c.id, { name: nextName, image_url: nextImage })
                     setEditingCatId(null); setDraftCatName(''); setDraftCatImage('')
                   }} disabled={!!(estStatus && (estStatus.status!=='active' || estStatus.billing_status!=='paid'))}>Salvar</button>
@@ -3413,7 +3462,11 @@ function AdminItems(){
           <div style={{fontWeight:600, marginBottom:6}}>Criar nova categoria</div>
           <div className="row" style={{gap:12}}>
             <div className="field" style={{flex:1}}><label className="muted">Nome</label><input value={newCatName} onChange={(e)=> setNewCatName(e.target.value)} placeholder="Ex: Bolos para Festas" /></div>
-            <div className="field" style={{flex:1}}><label className="muted">Imagem (opcional)</label><input value={newCatImage} onChange={(e)=> setNewCatImage(e.target.value)} placeholder="URL da imagem" /></div>
+            <div className="field" style={{flex:1}}>
+              <label className="muted" htmlFor="new-cat-image">Imagem (JPG/PNG/WebP • opcional)</label>
+              <input id="new-cat-image" name="newCatImage" aria-label="Imagem da categoria (nova)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleNewCatImageChange} />
+              {newCatImageError && <div className="muted" style={{color:'#b91c1c'}}>{newCatImageError}</div>}
+            </div>
           </div>
           <div style={{marginTop:8}}><button className="btn" onClick={addCategory} disabled={!newCatName.trim() || !!(estStatus && (estStatus.status!=='active' || estStatus.billing_status!=='paid'))}>Adicionar categoria</button></div>
         </div>
@@ -3447,7 +3500,11 @@ function AdminItems(){
                     </div>
                     <div className="row" style={{gap:8}}>
                       <input aria-label="Descrição curta" title="Breve resumo visível ao cliente" style={{flex:2}} value={draftProduct?.descShort||''} onChange={(e)=> setDraftProduct(prev=>({ ...(prev||{}), descShort: e.target.value }))} placeholder="Descrição curta" />
-                      <input aria-label="URL da imagem" title="Cole a URL completa da imagem (opcional)" style={{flex:2}} value={draftProduct?.image||''} onChange={(e)=> setDraftProduct(prev=>({ ...(prev||{}), image: e.target.value }))} placeholder="URL da imagem" />
+                      <div className="field" style={{flex:2}}>
+                        <label className="muted" htmlFor={`edit-product-image-${p.id}`}>Imagem (JPG/PNG/WebP)</label>
+                        <input id={`edit-product-image-${p.id}`} name="editProductImage" aria-label="Imagem do produto (edição)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleEditProductImageChange} />
+                        {editImageError && <div className="muted" style={{color:'#b91c1c'}}>{editImageError}</div>}
+                      </div>
                     </div>
                     <div className="row" style={{gap:8}}>
                       <div style={{display:'flex', alignItems:'center', gap:8}}>
@@ -3528,8 +3585,8 @@ function AdminItems(){
           <div className="row" style={{gap:12, marginTop:8}}>
             <div className="field" style={{flex:2}}><label className="muted">Descrição</label><input value={newDesc} onChange={(e)=> setNewDesc(e.target.value)} maxLength={200} placeholder="Breve e informativa" /></div>
             <div className="field" style={{flex:2}}>
-              <label className="muted">Imagem (JPG/PNG/WebP) • Máx 5MB</label>
-              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleNewImageChange} />
+              <label className="muted" htmlFor="new-product-image">Imagem (JPG/PNG/WebP) • Máx 5MB</label>
+              <input id="new-product-image" name="newProductImage" aria-label="Imagem do produto (novo)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleNewImageChange} />
               {newImageError && <div className="muted" style={{color:'#b91c1c'}}>{newImageError}</div>}
             </div>
           </div>
@@ -4378,12 +4435,12 @@ function EstabConfig(){
         {isAdmin && (
           <div className="row" style={{gap:12, marginTop:12}}>
             <div className="field" style={{flex:1}}>
-              <label className="muted">Foto de capa (upload)</label>
-              <input type="file" accept="image/*" onChange={(e)=> onSelectImage(e.target.files?.[0], setCoverImage)} />
+              <label className="muted" htmlFor="cover-image">Foto de capa (upload)</label>
+              <input id="cover-image" name="coverImage" aria-label="Foto de capa" type="file" accept="image/*" onChange={(e)=> onSelectImage(e.target.files?.[0], setCoverImage)} />
             </div>
             <div className="field" style={{flex:1}}>
-              <label className="muted">Logo/Perfil (upload)</label>
-              <input type="file" accept="image/*" onChange={(e)=> onSelectImage(e.target.files?.[0], setAvatarImage)} />
+              <label className="muted" htmlFor="avatar-image">Logo/Perfil (upload)</label>
+              <input id="avatar-image" name="avatarImage" aria-label="Logo/Perfil" type="file" accept="image/*" onChange={(e)=> onSelectImage(e.target.files?.[0], setAvatarImage)} />
             </div>
           </div>
         )}

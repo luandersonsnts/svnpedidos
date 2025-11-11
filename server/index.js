@@ -109,7 +109,9 @@ CREATE TABLE IF NOT EXISTS product_history (
 
   const app = express()
   app.use(cors())
-  app.use(bodyParser.json({ limit: '2mb' }))
+  // Aumenta o limite do corpo JSON para suportar imagens em base64 (5MB arquivo ≈ ~6.7MB base64)
+  app.use(bodyParser.json({ limit: '10mb' }))
+  app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }))
 
   // Health endpoints para passar checagens padrão do buildpack/plataforma
   app.get('/', (req,res)=> res.status(200).send('ok'))
