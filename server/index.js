@@ -141,21 +141,31 @@ CREATE TABLE IF NOT EXISTS product_history (
   // Upsert de estabelecimento (criar/atualizar mínimos para funcionar cardápio)
   app.post('/api/establishment', async (req,res)=>{
     try {
-      const { id, name, city, uf, support_contact } = req.body || {}
+      const { id, name, city, uf, support_contact, avatar_url, cover_url } = req.body || {}
       if (!id || String(id).trim().length===0) return res.status(400).json({ error:'missing_id' })
       const now = nowIso()
       const exists = await db.prepare('SELECT id FROM establishments WHERE id=?').get(id)
       if (!exists) {
-        await db.prepare('INSERT INTO establishments (id,name,city,uf,status,billing_status,support_contact,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
-          .run(id, name||null, city||null, uf||null, 'active', 'paid', support_contact||null, now, now)
+        await db.prepare('INSERT INTO establishments (id,name,city,uf,avatar_url,cover_url,status,billing_status,support_contact,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+          .run(id, name||null, city||null, uf||null, avatar_url||null, cover_url||null, 'active', 'paid', support_contact||null, now, now)
       } else {
-        await db.prepare('UPDATE establishments SET name=?, city=?, uf=?, support_contact=?, updated_at=? WHERE id=?')
-          .run(name||null, city||null, uf||null, support_contact||null, now, id)
+        await db.prepare('UPDATE establishments SET name=?, city=?, uf=?, support_contact=?, avatar_url=?, cover_url=?, updated_at=? WHERE id=?')
+          .run(name||null, city||null, uf||null, support_contact||null, avatar_url||null, cover_url||null, now, id)
       }
       res.json({ ok:true })
     } catch(e){
       res.status(500).json({ error:'db_error', detail:String(e) })
     }
+  })
+
+  // Obter dados completos do estabelecimento
+  app.get('/api/establishment/:id', async (req,res)=>{
+    try {
+      const { id } = req.params
+      const row = await db.prepare('SELECT id,name,city,uf,avatar_url,cover_url,status,billing_status,paid_until,plan,support_contact,created_at,updated_at FROM establishments WHERE id=?').get(id)
+      if (!row) return res.status(404).json({ error:'not_found' })
+      res.json(row)
+    } catch(e){ res.status(500).json({ error:'db_error', detail:String(e) }) }
   })
 
 // Categories

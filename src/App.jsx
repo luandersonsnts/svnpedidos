@@ -592,7 +592,7 @@ function CouponsModal({ onClose }){
   const [code, setCode] = useState('')
   const available = [
     { id:'CUPOM5', label:'5% TERÇA E QUARTA', description:'Cupom disponível apenas terça e quarta.', type:'percent', value:5 },
-    { id:'PRIMEIRA', label:'PRIMEIRO COMPRA', description:'Disponível apenas para novos clientes.', type:'shipping_free', value:0 }
+    { id:'PRIMEIRA', label:'PRIMEIRA COMPRA', description:'Disponível apenas para novos clientes.', type:'shipping_free', value:0 }
   ]
   // Elegibilidade dinâmica
   const today = new Date().getDay() // 0=Dom,1=Seg,2=Ter,3=Qua,4=Qui,5=Sex,6=Sab
@@ -609,6 +609,9 @@ function CouponsModal({ onClose }){
       return
     }
     const typed = code.trim()
+    const typedNorm = typed.replace(/\s+/g,'').toLowerCase()
+    const aliasMap = { 'primeiracompra': 'PRIMEIRA', 'primeirocompra': 'PRIMEIRA', '5%terçaequarta': 'CUPOM5', 'cupom5':'CUPOM5' }
+    const mappedId = aliasMap[typedNorm] || null
     // UX: se nenhum código foi digitado, mas um cupom já está selecionado via rádio, apenas fechamos
     if (!typed){
       if (coupon){ onClose(); return }
@@ -616,6 +619,8 @@ function CouponsModal({ onClose }){
       return
     }
     const found = available.find(a => a.id.toLowerCase() === typed.toLowerCase())
+      || (mappedId ? available.find(a => a.id === mappedId) : null)
+      || available.find(a => (a.label||'').replace(/\s+/g,'').toLowerCase() === typedNorm)
     if (found){
       if (!eligible[found.id]){
         if (found.id==='CUPOM5') alert('Este cupom só fica disponível na terça e na quarta.')
@@ -669,9 +674,17 @@ function HomeAside({ onOpenCoupons }){
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
 
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
-  const discount = coupon ? (coupon.type==='percent' ? subtotal * (coupon.value/100) : coupon.value) : 0
   const deliveryFee = auth?.address ? (auth.address.fee ?? null) : null
-  const total = subtotal - discount + (deliveryFee || 0)
+  const isFreeShipping = coupon?.type === 'shipping_free'
+  const discount = coupon ? (
+    coupon.type==='percent' ? subtotal * (coupon.value/100) : (
+      coupon.type==='value' ? coupon.value : (
+        isFreeShipping ? ((deliveryFee || 0)) : 0
+      )
+    )
+  ) : 0
+  const effectiveFee = isFreeShipping ? 0 : (deliveryFee || 0)
+  const total = subtotal - discount + effectiveFee
 
   const computeEta = (addr) => {
     const km = addr?.distanceKm ?? null
@@ -804,7 +817,7 @@ function HomeAside({ onOpenCoupons }){
         <div className="price-box" style={{marginTop:10}}>
           <div className="price-row"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
           <div className="price-row"><span>Desconto</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
-          <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${deliveryFee.toFixed(2)}` : '—'}</span></div>
+          <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${effectiveFee.toFixed(2)}` : '—'}</span></div>
           <div className="price-row total"><span>Total</span><span>R$ {total.toFixed(2)}</span></div>
         </div>
 
@@ -960,9 +973,17 @@ function Sacola(){
   }, [])
 
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
-  const discount = coupon ? (coupon.type==='percent' ? subtotal * (coupon.value/100) : coupon.value) : 0
   const deliveryFee = auth?.address ? (auth.address.fee ?? null) : null
-  const total = subtotal - discount + (deliveryFee || 0)
+  const isFreeShipping = coupon?.type === 'shipping_free'
+  const discount = coupon ? (
+    coupon.type==='percent' ? subtotal * (coupon.value/100) : (
+      coupon.type==='value' ? coupon.value : (
+        isFreeShipping ? ((deliveryFee || 0)) : 0
+      )
+    )
+  ) : 0
+  const effectiveFee = isFreeShipping ? 0 : (deliveryFee || 0)
+  const total = subtotal - discount + effectiveFee
 
   const computeEta = (addr) => {
     const km = addr?.distanceKm ?? null
@@ -1012,7 +1033,7 @@ function Sacola(){
                 <div style={{fontWeight:700, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>
                   {auth.address.label ?? `${auth.address.street || ''}${auth.address.number ? ', ' + auth.address.number : ''}${auth.address.neighborhood ? ' - ' + auth.address.neighborhood : ''}${(auth.address.city || auth.address.uf) ? ` • ${[auth.address.city, auth.address.uf].filter(Boolean).join('/')}` : ''}`}
                 </div>
-                <div className="muted" style={{marginTop:4}}>Entrega em {computeEta(auth.address)} / {deliveryFee!=null? `R$ ${deliveryFee.toFixed(2)}` : '—'}</div>
+                <div className="muted" style={{marginTop:4}}>Entrega em {computeEta(auth.address)} / {deliveryFee!=null? `R$ ${effectiveFee.toFixed(2)}` : '—'}</div>
               </div>
               <Button variant="outline" size="sm" onClick={()=> setShowDeliveryModal(true)} aria-label="Definir endereço">›</Button>
             </div>
@@ -1695,8 +1716,16 @@ function Checkout(){
   const { coupon } = useContext(CouponContext)
   const { establishment } = useContext(EstablishmentContext)
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
-  const discount = coupon ? (coupon.type==='percent' ? subtotal * (coupon.value/100) : coupon.value) : 0
-  const fee = auth?.address?.fee ?? 0
+  const baseFee = auth?.address?.fee ?? 0
+  const isFreeShipping = coupon?.type === 'shipping_free'
+  const discount = coupon ? (
+    coupon.type==='percent' ? subtotal * (coupon.value/100) : (
+      coupon.type==='value' ? coupon.value : (
+        isFreeShipping ? baseFee : 0
+      )
+    )
+  ) : 0
+  const fee = isFreeShipping ? 0 : baseFee
   const total = subtotal - discount + fee
 
   const [paymentMethod, setPaymentMethod] = useState('Pix')
@@ -1745,7 +1774,7 @@ function Checkout(){
         name: auth?.name || '',
         items: cart.map(i=> ({ id:i.id, productId:i.productId, name:i.name, qty:i.qty, unitPrice:i.unitPrice, choice: i.choice || null, obs: i.obs || '' })),
         subtotal,
-        discount: (coupon ? (coupon.type==='percent' ? subtotal * (coupon.value/100) : coupon.value) : 0),
+        discount,
         coupon: (coupon ? { id: coupon.id, label: coupon.label, type: coupon.type, value: coupon.value } : null),
         fee,
         total,
@@ -3993,6 +4022,7 @@ function Loyalty(){
 }
 
 export default function App() {
+  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001'
   const [coupon, setCoupon] = useState(null)
   const [establishment, setEstablishment] = useState(() => {
     try {
@@ -4042,6 +4072,37 @@ export default function App() {
       }
     } catch {}
   }, [])
+
+  // Sincronizar avatar/capa do backend, garantindo consistência entre dispositivos
+  useEffect(() => {
+    const eid = (establishment?.id) || localStorage.getItem('currentEstabId')
+    if (!eid) return
+    const applyRow = (row) => {
+      if (!row) return
+      const merged = {
+        ...establishment,
+        name: row.name ?? establishment?.name,
+        city: row.city ?? establishment?.city,
+        uf: row.uf ?? establishment?.uf,
+        avatarImage: row.avatar_url ?? establishment?.avatarImage,
+        coverImage: row.cover_url ?? establishment?.coverImage,
+      }
+      setEstablishment(merged)
+    }
+    // Fetch imediato
+    fetch(`${apiBase}/api/establishment/${encodeURIComponent(eid)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(applyRow)
+      .catch(() => {})
+    // Polling leve para atualização quase em tempo real
+    const t = setInterval(() => {
+      fetch(`${apiBase}/api/establishment/${encodeURIComponent(eid)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(applyRow)
+        .catch(() => {})
+    }, 15000)
+    return () => clearInterval(t)
+  }, [establishment?.id])
 
   useEffect(() => {
     try {
@@ -4503,7 +4564,7 @@ function EstabConfig(){
     // Persistir estabelecimento no backend para habilitar cardápio
     try {
       if (id?.trim()) {
-        fetch(`${apiBase}/api/establishment`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ id: id.trim(), name, city, uf }) }).catch(()=>{})
+        fetch(`${apiBase}/api/establishment`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ id: id.trim(), name, city, uf, avatar_url: next.avatarImage || null, cover_url: next.coverImage || null }) }).catch(()=>{})
       }
     } catch {}
     setEstablishment(next)
