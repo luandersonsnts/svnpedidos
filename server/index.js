@@ -110,6 +110,11 @@ CREATE TABLE IF NOT EXISTS product_history (
   app.use(cors())
   app.use(bodyParser.json({ limit: '2mb' }))
 
+  // Health endpoints para passar checagens padrão do buildpack/plataforma
+  app.get('/', (req,res)=> res.status(200).send('ok'))
+  app.get('/health', (req,res)=> res.status(200).json({ ok:true, useLibsql }))
+  app.get('/api/health', (req,res)=> res.status(200).json({ ok:true, useLibsql }))
+
 // Seed one establishment if empty
   const estRow = await db.prepare('SELECT COUNT(*) as c FROM establishments').get()
   const estCount = estRow?.c || 0
