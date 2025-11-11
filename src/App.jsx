@@ -146,6 +146,7 @@ function Home() {
   const [modalObs, setModalObs] = useState('')
   const [expandedCats, setExpandedCats] = useState({})
   const [refreshTick, setRefreshTick] = useState(0)
+  const [imgEditorApp, setImgEditorApp] = useState(null) // { src, w, h, setter, title }
   const eid = getCurrentEstabId()
   let categoriesAvailability = {}
   try { categoriesAvailability = JSON.parse(localStorage.getItem(`categoriesAvailability_${eid}`)||'{}') } catch {}
@@ -3370,6 +3371,7 @@ function AdminItems(){
   const [editingCatId, setEditingCatId] = useState(null)
   const [draftCatName, setDraftCatName] = useState('')
   const [draftCatImage, setDraftCatImage] = useState('')
+  const [imgEditorApp, setImgEditorApp] = useState(null) // { src, w, h, setter, title }
   const toggleCat = (id) => { const next = { ...catAvailability, [id]: !(catAvailability[id]) }; setCatAvailability(next); localStorage.setItem(`categoriesAvailability_${eid}`, JSON.stringify(next)) }
   const handleNewImageChange = (e) => {
     try {
@@ -3381,34 +3383,8 @@ function AdminItems(){
       if (file.size > maxBytes) { setNewImageError('Imagem acima de 5MB. Escolha um arquivo menor.'); setNewImageData(''); return }
       const reader = new FileReader()
       reader.onload = () => {
-        try {
-          const src = String(reader.result||'')
-          const img = new Image()
-          img.onload = () => {
-            try {
-              const TW = 800, TH = 600
-              const canvas = document.createElement('canvas')
-              canvas.width = TW; canvas.height = TH
-              const ctx = canvas.getContext('2d')
-              const sw = img.width, sh = img.height
-              const scale = Math.max(TW / sw, TH / sh)
-              const sWidth = Math.floor(TW / scale)
-              const sHeight = Math.floor(TH / scale)
-              const sx = Math.max(0, Math.floor((sw - sWidth) / 2))
-              const sy = Math.max(0, Math.floor((sh - sHeight) / 2))
-              ctx.imageSmoothingQuality = 'high'
-              ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, TW, TH)
-              const out = canvas.toDataURL('image/webp', 0.92)
-              setNewImageData(out); setNewImageError('')
-            } catch {
-              setNewImageData(src); setNewImageError('')
-            }
-          }
-          img.onerror = () => { setNewImageError('Falha ao carregar imagem.'); setNewImageData('') }
-          img.src = src
-        } catch {
-          setNewImageData(String(reader.result||'')); setNewImageError('')
-        }
+        const src = String(reader.result||'')
+        setImgEditorApp({ src, w: 512, h: 512, title: 'Ajustar imagem do produto', setter: (data) => { setNewImageData(data); setNewImageError('') } })
       }
       reader.onerror = () => { setNewImageError('Falha ao ler o arquivo.'); setNewImageData('') }
       reader.readAsDataURL(file)
@@ -3425,34 +3401,8 @@ function AdminItems(){
       if (file.size > maxBytes) { setNewCatImageError('Imagem acima de 5MB. Escolha um arquivo menor.'); setNewCatImage(''); return }
       const reader = new FileReader()
       reader.onload = () => {
-        try {
-          const src = String(reader.result||'')
-          const img = new Image()
-          img.onload = () => {
-            try {
-              const TW = 400, TH = 300
-              const canvas = document.createElement('canvas')
-              canvas.width = TW; canvas.height = TH
-              const ctx = canvas.getContext('2d')
-              const sw = img.width, sh = img.height
-              const scale = Math.max(TW / sw, TH / sh)
-              const sWidth = Math.floor(TW / scale)
-              const sHeight = Math.floor(TH / scale)
-              const sx = Math.max(0, Math.floor((sw - sWidth) / 2))
-              const sy = Math.max(0, Math.floor((sh - sHeight) / 2))
-              ctx.imageSmoothingQuality = 'high'
-              ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, TW, TH)
-              const out = canvas.toDataURL('image/webp', 0.92)
-              setNewCatImage(out); setNewCatImageError('')
-            } catch {
-              setNewCatImage(src); setNewCatImageError('')
-            }
-          }
-          img.onerror = () => { setNewCatImageError('Falha ao carregar imagem.'); setNewCatImage('') }
-          img.src = src
-        } catch {
-          setNewCatImage(String(reader.result||'')); setNewCatImageError('')
-        }
+        const src = String(reader.result||'')
+        setImgEditorApp({ src, w: 512, h: 512, title: 'Ajustar imagem da categoria', setter: (data) => { setNewCatImage(data); setNewCatImageError('') } })
       }
       reader.onerror = () => { setNewCatImageError('Falha ao ler o arquivo.'); setNewCatImage('') }
       reader.readAsDataURL(file)
@@ -3469,34 +3419,8 @@ function AdminItems(){
       if (file.size > maxBytes) { setEditImageError('Imagem acima de 5MB. Escolha um arquivo menor.'); return }
       const reader = new FileReader()
       reader.onload = () => {
-        try {
-          const src = String(reader.result||'')
-          const img = new Image()
-          img.onload = () => {
-            try {
-              const TW = 800, TH = 600
-              const canvas = document.createElement('canvas')
-              canvas.width = TW; canvas.height = TH
-              const ctx = canvas.getContext('2d')
-              const sw = img.width, sh = img.height
-              const scale = Math.max(TW / sw, TH / sh)
-              const sWidth = Math.floor(TW / scale)
-              const sHeight = Math.floor(TH / scale)
-              const sx = Math.max(0, Math.floor((sw - sWidth) / 2))
-              const sy = Math.max(0, Math.floor((sh - sHeight) / 2))
-              ctx.imageSmoothingQuality = 'high'
-              ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, TW, TH)
-              const out = canvas.toDataURL('image/webp', 0.92)
-              setDraftProduct(prev=> ({ ...(prev||{}), image: out })); setEditImageError('')
-            } catch {
-              setDraftProduct(prev=> ({ ...(prev||{}), image: src })); setEditImageError('')
-            }
-          }
-          img.onerror = () => { setEditImageError('Falha ao carregar imagem.') }
-          img.src = src
-        } catch {
-          setDraftProduct(prev=> ({ ...(prev||{}), image: String(reader.result||'') })); setEditImageError('')
-        }
+        const src = String(reader.result||'')
+        setImgEditorApp({ src, w: 512, h: 512, title: 'Ajustar imagem do produto', setter: (data) => { setDraftProduct(prev=> ({ ...(prev||{}), image: data })); setEditImageError('') } })
       }
       reader.onerror = () => { setEditImageError('Falha ao ler o arquivo.') }
       reader.readAsDataURL(file)
@@ -3513,28 +3437,8 @@ function AdminItems(){
       if (file.size > maxBytes) { setDraftCatImage(''); return }
       const reader = new FileReader()
       reader.onload = () => {
-        try {
-          const src = String(reader.result||'')
-          const img = new Image()
-          img.onload = () => {
-            const TW = 400, TH = 300
-            const canvas = document.createElement('canvas')
-            canvas.width = TW; canvas.height = TH
-            const ctx = canvas.getContext('2d')
-            const sw = img.width, sh = img.height
-            const scale = Math.max(TW / sw, TH / sh)
-            const sWidth = Math.floor(TW / scale)
-            const sHeight = Math.floor(TH / scale)
-            const sx = Math.max(0, Math.floor((sw - sWidth) / 2))
-            const sy = Math.max(0, Math.floor((sh - sHeight) / 2))
-            ctx.imageSmoothingQuality = 'high'
-            ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, TW, TH)
-            const out = canvas.toDataURL('image/webp', 0.92)
-            setDraftCatImage(out)
-          }
-          img.onerror = () => { setDraftCatImage(src) }
-          img.src = src
-        } catch { setDraftCatImage(String(reader.result||'')) }
+        const src = String(reader.result||'')
+        setImgEditorApp({ src, w: 512, h: 512, title: 'Ajustar imagem da categoria', setter: (data) => { setDraftCatImage(data) } })
       }
       reader.readAsDataURL(file)
     } catch(e){}
@@ -3720,9 +3624,9 @@ function AdminItems(){
                   <div className="field" style={{flex:2}}>
                     <label className="muted" htmlFor={`edit-cat-image-${c.id}`}>Imagem (JPG/PNG/WebP)</label>
                     <input id={`edit-cat-image-${c.id}`} name="editCatImage" aria-label="Imagem da categoria (edição)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleEditCatImageChange} />
-                    <div className="muted" style={{marginTop:6}}>Prévia 400×300 (WebP)</div>
+                    <div className="muted" style={{marginTop:6}}>Prévia 1:1 (WebP)</div>
                     <div style={{marginTop:6}}>
-                      <img alt="Prévia da categoria" src={draftCatImage || c.image || DEFAULT_CAT_PLACEHOLDER} onError={(e)=> { e.currentTarget.src = DEFAULT_CAT_PLACEHOLDER }} style={{width:160, height:120, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
+                      <img alt="Prévia da categoria" src={draftCatImage || c.image || DEFAULT_CAT_PLACEHOLDER} onError={(e)=> { e.currentTarget.src = DEFAULT_CAT_PLACEHOLDER }} style={{width:160, height:160, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
                     </div>
                   </div>
                 </div>
@@ -3755,9 +3659,9 @@ function AdminItems(){
             <div className="field" style={{flex:1}}>
               <label className="muted" htmlFor="new-cat-image">Imagem (JPG/PNG/WebP • opcional)</label>
               <input id="new-cat-image" name="newCatImage" aria-label="Imagem da categoria (nova)" type="file" accept="image/jpeg,image/webp,image/png" onChange={handleNewCatImageChange} />
-              <div className="muted" style={{marginTop:6}}>Prévia 400×300 (WebP)</div>
+              <div className="muted" style={{marginTop:6}}>Prévia 1:1 (WebP)</div>
               <div style={{marginTop:6}}>
-                <img alt="Prévia da nova categoria" src={newCatImage || DEFAULT_CAT_PLACEHOLDER} onError={(e)=> { e.currentTarget.src = DEFAULT_CAT_PLACEHOLDER }} style={{width:160, height:120, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
+                <img alt="Prévia da nova categoria" src={newCatImage || DEFAULT_CAT_PLACEHOLDER} onError={(e)=> { e.currentTarget.src = DEFAULT_CAT_PLACEHOLDER }} style={{width:160, height:160, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
               </div>
               {newCatImageError && <div className="muted" style={{color:'#b91c1c'}}>{newCatImageError}</div>}
             </div>
@@ -3798,9 +3702,9 @@ function AdminItems(){
                         <label className="muted" htmlFor={`edit-product-image-${p.id}`}>Imagem (JPG/PNG/WebP)</label>
                         <input id={`edit-product-image-${p.id}`} name="editProductImage" aria-label="Imagem do produto (edição)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleEditProductImageChange} />
                         {editImageError && <div className="muted" style={{color:'#b91c1c'}}>{editImageError}</div>}
-                        <div className="muted" style={{marginTop:6}}>Prévia 800×600 (WebP)</div>
+                        <div className="muted" style={{marginTop:6}}>Prévia 1:1 (WebP)</div>
                         <div style={{marginTop:6}}>
-                          <img alt="Prévia do produto" src={(draftProduct?.image||p.image||DEFAULT_PRODUCT_PLACEHOLDER)} onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} style={{width:160, height:120, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
+                          <img alt="Prévia do produto" src={(draftProduct?.image||p.image||DEFAULT_PRODUCT_PLACEHOLDER)} onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} style={{width:160, height:160, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
                         </div>
                       </div>
                     </div>
@@ -3886,9 +3790,9 @@ function AdminItems(){
               <label className="muted" htmlFor="new-product-image">Imagem (JPG/PNG/WebP) • Máx 5MB</label>
               <input id="new-product-image" name="newProductImage" aria-label="Imagem do produto (novo)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleNewImageChange} />
               {newImageError && <div className="muted" style={{color:'#b91c1c'}}>{newImageError}</div>}
-              <div className="muted" style={{marginTop:6}}>Prévia 800×600 (WebP)</div>
+              <div className="muted" style={{marginTop:6}}>Prévia 1:1 (WebP)</div>
               <div style={{marginTop:6}}>
-                <img alt="Prévia do novo produto" src={newImageData || DEFAULT_PRODUCT_PLACEHOLDER} onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} style={{width:160, height:120, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
+                <img alt="Prévia do novo produto" src={newImageData || DEFAULT_PRODUCT_PLACEHOLDER} onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} style={{width:160, height:160, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
               </div>
             </div>
           </div>
@@ -3941,6 +3845,16 @@ function AdminItems(){
           )}
         </div>
       </div>
+      {imgEditorApp && (
+        <ImageEditorModal
+          src={imgEditorApp.src}
+          aspectW={imgEditorApp.w}
+          aspectH={imgEditorApp.h}
+          title={imgEditorApp.title}
+          onClose={()=> setImgEditorApp(null)}
+          onConfirm={(data)=> { imgEditorApp.setter(data); setImgEditorApp(null) }}
+        />
+      )}
     </div>
   )
 }
