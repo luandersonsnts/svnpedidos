@@ -4475,6 +4475,9 @@ function EstabConfig(){
   const navigate = useNavigate()
   const location = useLocation()
   const isAdmin = location.pathname.startsWith('/admin')
+  // Base de API consistente com o App: localhost em dev e '/api' em produção
+  const isLocalHost = (()=>{ try { const h = typeof window!=='undefined'? window.location.hostname : ''; return /^(localhost|127\.0\.0\.1)$/i.test(h) } catch { return true } })()
+  const apiBase = import.meta.env.VITE_API_URL || (isLocalHost ? 'http://localhost:3001' : '/api')
   const { establishment, setEstablishment } = useContext(EstablishmentContext)
   const dayLabels = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
   const ensureSevenDays = (inHours) => {
@@ -4588,7 +4591,11 @@ function EstabConfig(){
     // Persistir estabelecimento no backend para habilitar cardápio
     try {
       if (id?.trim()) {
-        fetch(`${apiBase}/api/establishment`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ id: id.trim(), name, city, uf, avatar_url: next.avatarImage || null, cover_url: next.coverImage || null }) }).catch(()=>{})
+        await fetch(`${apiBase}/api/establishment`, {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json' },
+          body: JSON.stringify({ id: id.trim(), name, city, uf, avatar_url: next.avatarImage || null, cover_url: next.coverImage || null })
+        }).catch(()=>{})
       }
     } catch {}
     setEstablishment(next)
