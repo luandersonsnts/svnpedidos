@@ -2,6 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import bodyParser from 'body-parser'
+import path from 'node:path'
 
 // Flag para usar libSQL (Turso) se disponível
 const useLibsql = !!process.env.LIBSQL_DB_URL
@@ -268,6 +269,18 @@ CREATE TABLE IF NOT EXISTS product_history (
   })
 
   const PORT = process.env.PORT || 3001
+  
+  // Servir frontend estático (Vite build) no mesmo serviço
+  try {
+    const distDir = path.join(process.cwd(), 'dist')
+    app.use(express.static(distDir))
+    // Fallback SPA: qualquer rota não-API/health serve index.html
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/') || req.path === '/health' || req.path === '/api/health') return next()
+      res.sendFile(path.join(distDir, 'index.html'))
+    })
+  } catch {}
+
   app.listen(PORT, ()=> console.log('API running on http://localhost:'+PORT+' '+(useLibsql? '(libSQL remote)': '(local SQLite)')))
 };
 
