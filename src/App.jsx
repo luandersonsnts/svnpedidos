@@ -302,7 +302,6 @@ function Home() {
               decoding="async"
               crossOrigin="anonymous"
               onError={(e)=> { e.currentTarget.src = DEFAULT_COVER_PLACEHOLDER }}
-              onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.coverImage) || e.currentTarget.src }}
             />
             <div className="hero-gradient" />
           </div>
@@ -357,6 +356,12 @@ function Home() {
             </div>
           </div>
         </div>
+      </div>
+      <div className="feed-tabs">
+        <a href="#" className={!selectedCategory ? 'active' : ''} onClick={(e)=> { e.preventDefault(); setSelectedCategory('') }}>Todas</a>
+        {categories.filter(cat => !categoriesAvailability[cat.id]).map(cat => (
+          <a key={cat.id} href="#" className={selectedCategory===cat.id ? 'active' : ''} onClick={(e)=> { e.preventDefault(); setSelectedCategory(cat.id) }}>{cat.name}</a>
+        ))}
       </div>
 
       {/* Removido: barra redundante "Saiba mais" e abas internas */}
@@ -3384,7 +3389,36 @@ function AdminItems(){
       const maxBytes = 5 * 1024 * 1024
       if (file.size > maxBytes) { setNewCatImageError('Imagem acima de 5MB. Escolha um arquivo menor.'); setNewCatImage(''); return }
       const reader = new FileReader()
-      reader.onload = () => { setNewCatImage(String(reader.result||'')); setNewCatImageError('') }
+      reader.onload = () => {
+        try {
+          const src = String(reader.result||'')
+          const img = new Image()
+          img.onload = () => {
+            try {
+              const TW = 400, TH = 300
+              const canvas = document.createElement('canvas')
+              canvas.width = TW; canvas.height = TH
+              const ctx = canvas.getContext('2d')
+              const sw = img.width, sh = img.height
+              const scale = Math.max(TW / sw, TH / sh)
+              const sWidth = Math.floor(TW / scale)
+              const sHeight = Math.floor(TH / scale)
+              const sx = Math.max(0, Math.floor((sw - sWidth) / 2))
+              const sy = Math.max(0, Math.floor((sh - sHeight) / 2))
+              ctx.imageSmoothingQuality = 'high'
+              ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, TW, TH)
+              const out = canvas.toDataURL('image/webp', 0.92)
+              setNewCatImage(out); setNewCatImageError('')
+            } catch {
+              setNewCatImage(src); setNewCatImageError('')
+            }
+          }
+          img.onerror = () => { setNewCatImageError('Falha ao carregar imagem.'); setNewCatImage('') }
+          img.src = src
+        } catch {
+          setNewCatImage(String(reader.result||'')); setNewCatImageError('')
+        }
+      }
       reader.onerror = () => { setNewCatImageError('Falha ao ler o arquivo.'); setNewCatImage('') }
       reader.readAsDataURL(file)
     } catch(e){ setNewCatImageError('Erro ao processar imagem.'); setNewCatImage('') }
@@ -3414,7 +3448,30 @@ function AdminItems(){
       const maxBytes = 5 * 1024 * 1024
       if (file.size > maxBytes) { setDraftCatImage(''); return }
       const reader = new FileReader()
-      reader.onload = () => { setDraftCatImage(String(reader.result||'')) }
+      reader.onload = () => {
+        try {
+          const src = String(reader.result||'')
+          const img = new Image()
+          img.onload = () => {
+            const TW = 400, TH = 300
+            const canvas = document.createElement('canvas')
+            canvas.width = TW; canvas.height = TH
+            const ctx = canvas.getContext('2d')
+            const sw = img.width, sh = img.height
+            const scale = Math.max(TW / sw, TH / sh)
+            const sWidth = Math.floor(TW / scale)
+            const sHeight = Math.floor(TH / scale)
+            const sx = Math.max(0, Math.floor((sw - sWidth) / 2))
+            const sy = Math.max(0, Math.floor((sh - sHeight) / 2))
+            ctx.imageSmoothingQuality = 'high'
+            ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, TW, TH)
+            const out = canvas.toDataURL('image/webp', 0.92)
+            setDraftCatImage(out)
+          }
+          img.onerror = () => { setDraftCatImage(src) }
+          img.src = src
+        } catch { setDraftCatImage(String(reader.result||'')) }
+      }
       reader.readAsDataURL(file)
     } catch(e){}
   }
@@ -3594,6 +3651,10 @@ function AdminItems(){
                   <div className="field" style={{flex:2}}>
                     <label className="muted" htmlFor={`edit-cat-image-${c.id}`}>Imagem (JPG/PNG/WebP)</label>
                     <input id={`edit-cat-image-${c.id}`} name="editCatImage" aria-label="Imagem da categoria (edição)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleEditCatImageChange} />
+                    <div className="muted" style={{marginTop:6}}>Prévia 400×300 (WebP)</div>
+                    <div style={{marginTop:6}}>
+                      <img alt="Prévia da categoria" src={draftCatImage || c.image || DEFAULT_CAT_PLACEHOLDER} onError={(e)=> { e.currentTarget.src = DEFAULT_CAT_PLACEHOLDER }} style={{width:160, height:120, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
+                    </div>
                   </div>
                 </div>
                 <div style={{display:'flex', gap:8}}>
@@ -3624,7 +3685,11 @@ function AdminItems(){
             <div className="field" style={{flex:1}}><label className="muted">Nome</label><input value={newCatName} onChange={(e)=> setNewCatName(e.target.value)} placeholder="Ex: Bolos para Festas" /></div>
             <div className="field" style={{flex:1}}>
               <label className="muted" htmlFor="new-cat-image">Imagem (JPG/PNG/WebP • opcional)</label>
-              <input id="new-cat-image" name="newCatImage" aria-label="Imagem da categoria (nova)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleNewCatImageChange} />
+              <input id="new-cat-image" name="newCatImage" aria-label="Imagem da categoria (nova)" type="file" accept="image/jpeg,image/webp,image/png" onChange={handleNewCatImageChange} />
+              <div className="muted" style={{marginTop:6}}>Prévia 400×300 (WebP)</div>
+              <div style={{marginTop:6}}>
+                <img alt="Prévia da nova categoria" src={newCatImage || DEFAULT_CAT_PLACEHOLDER} onError={(e)=> { e.currentTarget.src = DEFAULT_CAT_PLACEHOLDER }} style={{width:160, height:120, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
+              </div>
               {newCatImageError && <div className="muted" style={{color:'#b91c1c'}}>{newCatImageError}</div>}
             </div>
           </div>
