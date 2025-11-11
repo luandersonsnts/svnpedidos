@@ -274,13 +274,29 @@ function Home() {
       <div className="hero" style={{marginTop:12}}>
         <div className="hero-bg">
           <div className="hero-frame">
-            <img className="estab-cover" src={(establishment && establishment.coverImage) || (mockEstablishment && mockEstablishment.coverImage)} alt="Capa do estabelecimento" loading="eager" fetchpriority="high" decoding="async" />
+            <img
+              className="estab-cover"
+              src={(establishment && establishment.coverImage) || (mockEstablishment && mockEstablishment.coverImage)}
+              alt="Capa do estabelecimento"
+              loading="eager"
+              fetchpriority="high"
+              decoding="async"
+              onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.coverImage) || e.currentTarget.src }}
+            />
             <div className="hero-gradient" />
           </div>
         </div>
         <div className="hero-content mobile">
           <div className="avatar-card">
-            <img className="avatar-img" src={(establishment && establishment.avatarImage) || (mockEstablishment && mockEstablishment.avatarImage)} alt="Logo" loading="eager" fetchpriority="high" decoding="async" />
+            <img
+              className="avatar-img"
+              src={(establishment && establishment.avatarImage) || (mockEstablishment && mockEstablishment.avatarImage)}
+              alt="Logo"
+              loading="eager"
+              fetchpriority="high"
+              decoding="async"
+              onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.avatarImage) || e.currentTarget.src }}
+            />
           </div>
           <h1 className="hero-title" style={{marginTop:8}}>{(establishment && establishment.name) || (mockEstablishment && mockEstablishment.name) || 'Seu Estabelecimento'}</h1>
           <div className="hero-info" style={{marginTop:6}}>
@@ -296,7 +312,14 @@ function Home() {
         </div>
         <div className="hero-content desktop">
           <div className="avatar-card" style={{width:96, height:96}}>
-            <img className="avatar-img" src={(establishment && establishment.avatarImage) || (mockEstablishment && mockEstablishment.avatarImage)} alt="Logo" loading="eager" decoding="async" />
+            <img
+              className="avatar-img"
+              src={(establishment && establishment.avatarImage) || (mockEstablishment && mockEstablishment.avatarImage)}
+              alt="Logo"
+              loading="eager"
+              decoding="async"
+              onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.avatarImage) || e.currentTarget.src }}
+            />
           </div>
           <div>
             <h1 className="hero-title">{(establishment && establishment.name) || (mockEstablishment && mockEstablishment.name) || 'Seu Estabelecimento'}</h1>
@@ -350,11 +373,14 @@ function Home() {
         </div>
       </div>
 
-      <div className="mobile-only" style={{marginTop:8}}>
-        <button className="btn btn-lg catlist-trigger" onClick={()=> setShowCats(v=>!v)}>Lista de categorias</button>
+      <div style={{marginTop:8}}>
+        <div style={{display:'flex', gap:8, alignItems:'center'}}>
+          <button className="btn btn-lg catlist-trigger" onClick={()=> setShowCats(v=>!v)}>LISTAR CATEGORIAS</button>
+          {selectedCategory && <button className="btn outline btn-lg" onClick={()=> setSelectedCategory('')}>LIMPAR FILTRO</button>}
+        </div>
         {showCats && (
           <div className="cats-dropdown" style={{marginTop:10}}>
-            {categories.map(cat => (
+            {categories.filter(cat => !categoriesAvailability[cat.id]).map(cat => (
               <div key={cat.id} className="cats-item" onClick={()=> { setSelectedCategory(cat.id); setShowCats(false) }}>
                 <span>{cat.name}</span>
                 <span>›</span>
@@ -379,17 +405,7 @@ function Home() {
       {/* Filtros e busca (Desktop somente) */}
       <div className="section-card desktop-only">
         <div className="row" style={{alignItems:'center'}}>
-          <div className="field" style={{flex:2}}>
-            <label className="muted">Buscar por nome</label>
-            <input value={searchQuery} onChange={(e)=> setSearchQuery(e.target.value)} placeholder="Ex: Chocolate" />
-          </div>
-          <div className="field" style={{flex:1}}>
-            <label className="muted">Categoria</label>
-            <select value={selectedCategory} onChange={(e)=> setSelectedCategory(e.target.value)}>
-              <option value="">Todas</option>
-              {categories.map(c=> <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
+          {/* Campo de busca removido conforme solicitado */}
           <div className="field" style={{flex:1}}>
             <label className="muted">Ordenar por preço</label>
             <select value={priceSort} onChange={(e)=> setPriceSort(e.target.value)}>
@@ -407,28 +423,12 @@ function Home() {
 
       {showInfo && <EstablishmentInfoModal onClose={()=> setShowInfo(false)} />}
 
-      <div className="section-card desktop-only" style={{marginTop:12}}>
-        <div style={{fontWeight:700}}>Categorias</div>
-        <div className="grid categories-grid" style={{marginTop:8}}>
-          {categories.filter(cat => !categoriesAvailability[cat.id]).map(cat => (
-            <div key={cat.id} className="card" onClick={()=> setSelectedCategory(cat.id)}>
-              <img src={cat.image} alt={cat.name} loading="lazy" decoding="async" />
-              <div className="info">
-                <div className="row category-header" style={{alignItems:'center'}}>
-                  <div className="category-name">{cat.name}</div>
-                  <div className="muted">{selectedCategory===cat.id ? 'Selecionado' : 'Selecionar'}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Removido grid de categorias para usar somente o botão LISTAR CATEGORIAS */}
 
       <div id="itens" className="section-card">
         <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
           <div style={{fontWeight:700}}>Itens{selectedCategory? ` • ${categories.find(c=>c.id===selectedCategory)?.name||''}`:''}</div>
           <div style={{display:'flex', alignItems:'center', gap:8}}>
-            <button className="btn outline btn-sm" onClick={()=> setRefreshTick(t=>t+1)}>Atualizar</button>
             {cart.length>0 && <Link to="/sacola" className="btn secondary">Ver sacola ({cart.length})</Link>}
           </div>
         </div>
@@ -1554,7 +1554,14 @@ function TopNav(){
     <nav className="top-nav">
       <div className="nav-content">
         <div className="brand">
-          <img className="brand-logo" src={(establishment && establishment.avatarImage) || (mockEstablishment && mockEstablishment.avatarImage)} alt="Logo" loading="eager" decoding="async" />
+          <img
+            className="brand-logo"
+            src={(establishment && establishment.avatarImage) || (mockEstablishment && mockEstablishment.avatarImage)}
+            alt="Logo"
+            loading="eager"
+            decoding="async"
+            onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.avatarImage) || e.currentTarget.src }}
+          />
           <span className="brand-name">{(establishment && establishment.name) || 'Seu Estabelecimento'}</span>
         </div>
         <div className="nav-items">
@@ -3971,19 +3978,23 @@ export default function App() {
       img.crossOrigin = 'anonymous'
       img.src = logoSrc
       img.onload = () => {
-        const size = 64
-        const canvas = document.createElement('canvas')
-        canvas.width = size
-        canvas.height = size
-        const ctx = canvas.getContext('2d')
-        ctx.clearRect(0,0,size,size)
-        ctx.save()
-        ctx.beginPath(); ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); ctx.closePath(); ctx.clip()
-        ctx.drawImage(img, 0, 0, size, size)
-        ctx.restore()
-        const url = canvas.toDataURL('image/png')
-        link.href = url
-        if (!link.isConnected) document.head.appendChild(link)
+        try {
+          const size = 64
+          const canvas = document.createElement('canvas')
+          canvas.width = size
+          canvas.height = size
+          const ctx = canvas.getContext('2d')
+          ctx.clearRect(0,0,size,size)
+          ctx.save()
+          ctx.beginPath(); ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); ctx.closePath(); ctx.clip()
+          ctx.drawImage(img, 0, 0, size, size)
+          ctx.restore()
+          const url = canvas.toDataURL('image/png')
+          link.href = url
+          if (!link.isConnected) document.head.appendChild(link)
+        } catch {
+          // Ignorar erro de CORS e manter favicon padrão
+        }
       }
     } catch {}
   }, [establishment?.avatarImage, establishment?.coverImage])
