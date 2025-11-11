@@ -7,9 +7,27 @@ import bodyParser from 'body-parser'
 const useLibsql = !!process.env.LIBSQL_DB_URL
 let db
 
+// Util para mascarar tokens em logs
+const mask = (v) => {
+  if (!v) return '(not set)'
+  const s = String(v)
+  const head = s.slice(0, 6)
+  const tail = s.slice(-4)
+  return `${head}...${tail} (len=${s.length})`
+}
+
 // Create tables if not exist
 // Inicialização assíncrona para suportar libSQL
 const bootstrap = async () => {
+  // Log de variáveis de ambiente relevantes
+  console.log('[env] node', process.version)
+  console.log('[env] NODE_ENV=', process.env.NODE_ENV || '(not set)')
+  console.log('[env] LIBSQL_DB_URL=', process.env.LIBSQL_DB_URL || '(not set)')
+  console.log('[env] LIBSQL_DB_TOKEN=', mask(process.env.LIBSQL_DB_TOKEN))
+  console.log('[env] SKIP_BUILD=', process.env.SKIP_BUILD || '(not set)')
+  console.log('[env] NPM_CONFIG_PRODUCTION=', process.env.NPM_CONFIG_PRODUCTION || '(not set)')
+  console.log('[env] NPM_CONFIG_OPTIONAL=', process.env.NPM_CONFIG_OPTIONAL || '(not set)')
+  console.log('[env] useLibsql=', useLibsql)
   // Inicializa client de banco (libSQL remoto ou SQLite local)
   if (useLibsql) {
     const { createClient } = await import('@libsql/client')
