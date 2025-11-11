@@ -655,7 +655,12 @@ function CouponsModal({ onClose }){
                 <div style={{fontWeight:600}}>{a.label}</div>
                 <div className="muted">{a.description}{!eligible[a.id] ? (a.id==='CUPOM5' ? ' — indisponível hoje' : ' — não é primeira compra') : ''}</div>
                 {a.type==='percent' && <div className="muted">{a.value} %</div>}
-                {a.type==='shipping_free' && <div className="muted">ENTREGA GRÁTIS</div>}
+                {a.type==='shipping_free' && (
+                  <>
+                    <div className="muted">ENTREGA GRÁTIS</div>
+                    <div className="muted" style={{fontSize:12}}>O desconto será igual à taxa de entrega.</div>
+                  </>
+                )}
               </div>
             </label>
           ))}
@@ -816,9 +821,14 @@ function HomeAside({ onOpenCoupons }){
 
         <div className="price-box" style={{marginTop:10}}>
           <div className="price-row"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
-          <div className="price-row"><span>Desconto</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
+          <div className="price-row"><span>{isFreeShipping ? 'Desconto (frete grátis)' : 'Desconto'}</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
           <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${effectiveFee.toFixed(2)}` : '—'}</span></div>
           <div className="price-row total"><span>Total</span><span>R$ {total.toFixed(2)}</span></div>
+          {isFreeShipping && (
+            <div className="muted" style={{marginTop:6, fontSize:12}}>
+              Cupom PRIMEIRA COMPRA aplicado: desconto = taxa de entrega ({deliveryFee!=null? `R$ ${(deliveryFee||0).toFixed(2)}`:'R$ 0,00'}), taxa fica R$ 0,00.
+            </div>
+          )}
         </div>
 
         {/* Cupom */}
@@ -1096,9 +1106,14 @@ function Sacola(){
 
             <div className="price-box">
               <div className="price-row"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
-              <div className="price-row"><span>Desconto</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
-              <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${deliveryFee.toFixed(2)}` : '—'}</span></div>
+              <div className="price-row"><span>{isFreeShipping ? 'Desconto (frete grátis)' : 'Desconto'}</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
+              <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${(isFreeShipping?0:(deliveryFee||0)).toFixed(2)}` : '—'}</span></div>
               <div className="price-row total"><span>TOTAL</span><span>R$ {total.toFixed(2)}</span></div>
+              {isFreeShipping && (
+                <div className="muted" style={{marginTop:6, fontSize:12}}>
+                  Cupom PRIMEIRA COMPRA: desconto = taxa de entrega ({deliveryFee!=null? `R$ ${(deliveryFee||0).toFixed(2)}`:'R$ 0,00'}), taxa fica R$ 0,00.
+                </div>
+              )}
             </div>
 
             {/* Banner indicando existência de cupom */}
