@@ -573,9 +573,9 @@ function ProductModal({ product, choice, setChoice, qty, setQty, obs, setObs, on
           <div className="row" style={{justifyContent:'space-between', marginTop:8}}>
             <div className="price" aria-label="Preço atual">R$ {currentPrice.toFixed(2)}</div>
           </div>
-          <div className="btn-row" style={{marginTop:12}}>
-            <button className="btn secondary" onClick={onClose}>Cancelar</button>
-            <button className="btn" disabled={!!og?.required && !choice} onClick={onConfirm}>Adicionar</button>
+            <div className="btn-row" style={{marginTop:12}}>
+            <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+            <Button disabled={!!og?.required && !choice} onClick={onConfirm}>Adicionar</Button>
           </div>
         </div>
       </div>
@@ -609,7 +609,7 @@ function CouponsModal({ onClose }){
         </div>
         <div className="row" style={{gap:8, marginTop:8}}>
           <input placeholder="Código do cupom" value={code} onChange={(e)=> setCode(e.target.value)} />
-          <button className="btn" onClick={applyCode}>ADICIONAR</button>
+            <Button onClick={applyCode}>ADICIONAR</Button>
         </div>
         <div style={{marginTop:12, fontWeight:700}}>Cupons disponíveis</div>
         <div>
@@ -785,8 +785,8 @@ function HomeAside({ onOpenCoupons }){
         </div>
 
         <div className="row" style={{justifyContent:'space-between', marginTop:8}}>
-          <button className="btn outline" onClick={onOpenCoupons}>Usar cupom</button>
-          <button className="btn" disabled={cart.length===0} onClick={()=> navigate('/sacola')}>Continuar pedido</button>
+            <Button variant="outline" onClick={onOpenCoupons}>Usar cupom</Button>
+            <Button disabled={cart.length===0} onClick={()=> navigate('/sacola')}>Continuar pedido</Button>
         </div>
         {showDeliveryModal && (
           <DeliveryOptionsModal
@@ -844,7 +844,7 @@ function PhoneStep() {
         <input placeholder="(99) 99999-9999" value={phone} onChange={(e)=> setPhone(e.target.value)} />
       </div>
       <div style={{marginTop:12}}>
-        <button className="btn" onClick={confirm}>Confirmar</button>
+            <Button onClick={confirm}>Confirmar</Button>
       </div>
       <Footer />
       <Tabs />
@@ -883,7 +883,7 @@ function DeliveryType() {
         </select>
       </div>
       <div style={{marginTop:12}}>
-        <button className="btn btn-lg btn-block" onClick={onContinue}>Continuar</button>
+            <Button size="lg" block onClick={onContinue}>Continuar</Button>
       </div>
       <Footer />
       <Tabs />
@@ -952,11 +952,11 @@ function Sacola(){
         <div className="row" style={{alignItems:'center'}}>
           <h2 style={{margin:0}}>Sua sacola</h2>
           {cart.length>0 && (
-            <button className="btn outline" onClick={()=> setCart([])}>Esvaziar Carrinho</button>
+            <Button variant="outline" onClick={()=> setCart([])}>Esvaziar Carrinho</Button>
           )}
         </div>
         {cart.length===0 ? (
-          <div className="empty">Sua sacola está vazia. <button className="btn secondary btn-lg btn-block" onClick={()=> navigate('/')}>Adicionar mais itens</button></div>
+            <div className="empty">Sua sacola está vazia. <Button variant="secondary" size="lg" block onClick={()=> navigate('/')}>Adicionar mais itens</Button></div>
         ) : (
           <div className="cart-body">
             {cart.map(item => (
@@ -978,9 +978,9 @@ function Sacola(){
                         <button className="btn secondary" onClick={()=> setTempQty(q=> q+1)}>+</button>
                       </div>
                       <input className="input" value={tempObs} onChange={e=> setTempObs(e.target.value)} placeholder="Observação" />
-                      <div className="btn-row">
-                        <button className="btn btn-lg" onClick={applyEdit}>Aplicar</button>
-                        <button className="btn secondary btn-lg" onClick={cancelEdit}>Cancelar</button>
+            <div className="btn-row">
+            <Button size="lg" onClick={applyEdit}>Aplicar</Button>
+            <Button variant="secondary" size="lg" onClick={cancelEdit}>Cancelar</Button>
                       </div>
                     </div>
                   ) : (
@@ -1004,7 +1004,7 @@ function Sacola(){
                   <div key={p.id} className="suggestion-card">
                     <img src={p.image} alt={p.name} />
                     <div className="name">{p.name}</div>
-                    <button className="btn secondary" onClick={()=> addSuggestion(p)}>Adicionar</button>
+            <Button variant="secondary" onClick={()=> addSuggestion(p)}>Adicionar</Button>
                   </div>
                 ))}
               </div>
@@ -1015,11 +1015,11 @@ function Sacola(){
               <div className="price-row total"><span>TOTAL</span><span>R$ {total.toFixed(2)}</span></div>
             </div>
 
-            <button className="btn cta-blink" onClick={()=> setShowCoupons(true)}>Que tal usar um cupom?</button>
+            <Button className="cta-blink" onClick={()=> setShowCoupons(true)}>Que tal usar um cupom?</Button>
             {showCoupons && <CouponsModal onClose={()=> setShowCoupons(false)} />}
 
             <div className="row" style={{marginTop:12}}>
-              <button className="btn btn-lg btn-block" onClick={()=> setShowDeliveryModal(true)}>Continuar pedido</button>
+            <Button size="lg" block onClick={()=> setShowDeliveryModal(true)}>Continuar pedido</Button>
             </div>
             {showDeliveryModal && (
               <DeliveryOptionsModal
@@ -1105,7 +1105,7 @@ function DeliveryOptionsModal({ onClose, onSelected }){
           </label>
         </div>
         <div className="btn-row" style={{marginTop:12}}>
-          <button className="btn btn-lg" disabled={!canContinue} onClick={()=> {
+            <Button size="lg" disabled={!canContinue} onClick={()=> {
             if (typeof onSelected === 'function') {
               onSelected(selected)
               return
@@ -1287,7 +1287,7 @@ function CepModal({ onClose }){
           <input placeholder="00000-000" value={formatCep(cep)} onChange={e=> setCep(e.target.value)} />
         </div>
         <div style={{marginTop:10}}>
-          <button className="btn btn-lg btn-block" onClick={buscarCep} disabled={loading}>{loading ? 'Buscando...' : 'Buscar CEP'}</button>
+            <Button size="lg" block onClick={buscarCep} disabled={loading}>{loading ? 'Buscando...' : 'Buscar CEP'}</Button>
         </div>
         <div style={{marginTop:8}}>
           <a className="linklike" href="https://buscacepinter.correios.com.br/app/endereco/index.php" target="_blank" rel="noopener noreferrer">Não sei meu CEP</a>
@@ -1334,8 +1334,8 @@ function CepModal({ onClose }){
               </div>
             </div>
             <div className="btn-row" style={{marginTop:12}}>
-              <button className="btn btn-lg" onClick={salvar} disabled={!canConfirm}>Confirmar</button>
-              <button className="btn secondary btn-lg" onClick={onClose}>Voltar</button>
+            <Button size="lg" onClick={salvar} disabled={!canConfirm}>Confirmar</Button>
+            <Button variant="secondary" size="lg" onClick={onClose}>Voltar</Button>
             </div>
           </div>
         )}
@@ -1397,7 +1397,7 @@ function LoginStep(){
         {!phoneValid && phone && <div className="muted" style={{color:'#ef4444', marginTop:6}}>Número inválido. Informe com DDD.</div>}
       </div>
       <div style={{marginTop:12}}>
-        <button className="btn btn-lg btn-block" disabled={!phoneValid} onClick={confirmPhone}>Continuar</button>
+            <Button size="lg" block disabled={!phoneValid} onClick={confirmPhone}>Continuar</Button>
       </div>
       <div className="muted" style={{marginTop:8}}>O nome é coletado apenas no cadastro.</div>
       <Footer />
@@ -1502,7 +1502,7 @@ function Tabs(){
               <input placeholder="Digite seu celular ou e-mail" value={loginPhone} onChange={(e)=> setLoginPhone(e.target.value)} />
             </div>
             <div style={{marginTop:10, display:'flex', gap:8}}>
-              <button className="btn" disabled={!validLogin} onClick={submitLogin}>Continuar</button>
+            <Button disabled={!validLogin} onClick={submitLogin}>Continuar</Button>
               <button className="linklike" onClick={()=> setShowAccount(false)}>Cancelar</button>
             </div>
             <div className="muted" style={{marginTop:8}}>O nome é solicitado apenas no cadastro.</div>
@@ -1608,7 +1608,7 @@ function TopNav(){
               <input placeholder="Digite seu celular ou e-mail" value={loginPhone} onChange={(e)=> setLoginPhone(e.target.value)} />
             </div>
             <div style={{marginTop:10, display:'flex', gap:8}}>
-              <button className="btn" disabled={!validLogin} onClick={submitLogin}>Continuar</button>
+            <Button disabled={!validLogin} onClick={submitLogin}>Continuar</Button>
               <button className="linklike" onClick={()=> setShowAccount(false)}>Cancelar</button>
             </div>
             <div className="muted" style={{marginTop:8}}>O nome é solicitado apenas no cadastro.</div>
@@ -1825,7 +1825,7 @@ function Checkout(){
       <div className="muted" style={{textAlign:'center', marginTop:12}}>PAGAR COM DUAS FORMAS DE PAGAMENTO</div>
 
       <div style={{position:'fixed', left:0, right:0, bottom:68, padding:'0 16px'}}>
-        <button className="btn btn-lg btn-block" onClick={continueCheckout}>{stage==='pagamento' ? 'Continuar' : 'Enviar pedido'}</button>
+            <Button size="lg" block onClick={continueCheckout}>{stage==='pagamento' ? 'Continuar' : 'Enviar pedido'}</Button>
         <div className="row" style={{justifyContent:'space-between', marginTop:8}}>
           <div className="muted">Subtotal</div>
           <div>R$ {subtotal.toFixed(2)}</div>
@@ -1848,9 +1848,9 @@ function Checkout(){
                 <div className="muted">Você vai pagar R$ {total.toFixed(2)} em dinheiro</div>
                 <h3 style={{marginTop:8}}>Vai precisar de troco?</h3>
               </div>
-              <div className="btn-row" style={{marginTop:12}}>
-                <button className="btn secondary btn-lg btn-block" onClick={()=> setShowAskChange(false)}>Não</button>
-                <button className="btn btn-lg btn-block" onClick={()=> { setShowAskChange(false); setShowChangeAmount(true); }}>Sim</button>
+            <div className="btn-row" style={{marginTop:12}}>
+            <Button variant="secondary" size="lg" block onClick={()=> setShowAskChange(false)}>Não</Button>
+            <Button size="lg" block onClick={()=> { setShowAskChange(false); setShowChangeAmount(true); }}>Sim</Button>
               </div>
             </div>
           </div>
@@ -1875,9 +1875,9 @@ function Checkout(){
                   <div className="muted" style={{marginTop:6}}>Troco: {formatBRL(Math.round((changeValue - total) * 100))}</div>
                 )}
               </div>
-              <div className="btn-row" style={{marginTop:12}}>
-                <button className="btn secondary btn-lg btn-block" onClick={()=> setShowChangeAmount(false)}>Voltar</button>
-                <button className="btn btn-lg btn-block" disabled={!canConfirmChange} onClick={()=> setShowChangeAmount(false)}>Confirmar</button>
+            <div className="btn-row" style={{marginTop:12}}>
+            <Button variant="secondary" size="lg" block onClick={()=> setShowChangeAmount(false)}>Voltar</Button>
+            <Button size="lg" block disabled={!canConfirmChange} onClick={()=> setShowChangeAmount(false)}>Confirmar</Button>
               </div>
             </div>
           </div>
@@ -1993,8 +1993,8 @@ function Orders(){
           <div className="muted">para ser avisado quando seu pedido mudar de status.</div>
         </div>
         <div className="btn-row">
-          <button className="btn outline btn-lg" onClick={()=> { try { localStorage.setItem(`notifConsent_${eid}`,'denied') } catch(e) {}; setShowNotif(false) }}>NÃO AGORA</button>
-          <button className="btn btn-lg" onClick={()=> {
+            <Button variant="outline" size="lg" onClick={()=> { try { localStorage.setItem(`notifConsent_${eid}`,'denied') } catch(e) {}; setShowNotif(false) }}>NÃO AGORA</Button>
+            <Button size="lg" onClick={()=> {
             try {
               if (typeof Notification!=='undefined' && Notification.requestPermission){
                 Notification.requestPermission().then(res => { localStorage.setItem(`notifConsent_${eid}`, res||'default'); setShowNotif(false) })
@@ -2417,7 +2417,7 @@ function AdminLogin(){
           <div style={{color:'var(--error, #b00020)', marginTop:8}}>{error}</div>
         )}
         <div style={{marginTop:8}}>
-          <button className="btn" disabled={!canLogin} onClick={login}>Entrar</button>
+            <Button disabled={!canLogin} onClick={login}>Entrar</Button>
         </div>
         <div className="muted" style={{marginTop:8}}>Dica: configure o ID e a senha em "Configurar Estabelecimento".</div>
       </div>
@@ -4791,7 +4791,7 @@ function ImageEditorModal({ src, aspectW, aspectH, title='Ajustar imagem', onClo
           </div>
           <div className="row" style={{gap:8, justifyContent:'flex-end'}}>
             <button className="linklike" onClick={onClose}>Cancelar</button>
-            <button className="btn" onClick={confirm}>Aplicar</button>
+            <Button onClick={confirm}>Aplicar</Button>
           </div>
         </div>
       </div>
