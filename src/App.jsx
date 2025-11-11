@@ -12,14 +12,32 @@ const AuthContext = createContext({ auth: { loggedIn:false, phone:'', name:'', a
 // Contexto de carrinho com persistência
 const CartContext = createContext({ cart: [], setCart: () => {} })
 
+// Placeholders locais (data URIs) para evitar logs de rede em ambientes sem acesso externo
+const DEFAULT_AVATAR_PLACEHOLDER =
+  'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect width="256" height="256" fill="#f2f2f2"/><circle cx="128" cy="96" r="44" fill="#d9d9d9"/><rect x="48" y="160" width="160" height="56" rx="28" fill="#d9d9d9"/></svg>'
+  )
+const DEFAULT_COVER_PLACEHOLDER =
+  'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="360" viewBox="0 0 1180 360"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5f5f5"/><stop offset="1" stop-color="#e6e6e6"/></linearGradient></defs><rect width="1180" height="360" fill="url(#g)"/></svg>'
+  )
+const DEFAULT_CAT_PLACEHOLDER =
+  'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="#f4f4f4"/><rect x="80" y="100" width="240" height="100" rx="12" fill="#dddddd"/></svg>'
+  )
+const DEFAULT_PRODUCT_PLACEHOLDER =
+  'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600"><rect width="800" height="600" fill="#f7f7f7"/><rect x="160" y="180" width="480" height="240" rx="16" fill="#e0e0e0"/></svg>'
+  )
+
 const mockEstablishment = {
   id: 'mundodocen5',
   name: 'Mundo Doce - Bolos Caseiros',
   city: 'Petrolina',
   uf: 'PE',
   openMsg: 'Apenas agendamento • Abrimos amanhã às 07h00',
-  coverImage: 'https://via.placeholder.com/1180x360.png?text=Mundo+Doce+-+Capa',
-  avatarImage: 'https://via.placeholder.com/256.png?text=Mundo+Doce',
+  coverImage: DEFAULT_COVER_PLACEHOLDER,
+  avatarImage: DEFAULT_AVATAR_PLACEHOLDER,
   instagram: '',
   phones: ['(74) 98121-3461'],
   addressLines: ['R. Quinze Lot Guararapes, 140', 'COHAB São Francisco, Petrolina - PE'],
@@ -79,36 +97,36 @@ const mockEstablishment = {
 }
 
 const mockCategories = [
-  { id:'bolos_caseiros', name:'Bolos Caseiros', image:'https://picsum.photos/seed/cat-bolos-caseiros/400/300' },
-  { id:'bolos_vulcao', name:'Bolos Vulcão', image:'https://picsum.photos/seed/cat-bolos-vulcao/400/300' },
-  { id:'bolos_festas', name:'Bolos para Festas', image:'https://picsum.photos/seed/cat-bolos-festas/400/300' },
-  { id:'salgados', name:'Salgados', image:'https://picsum.photos/seed/cat-salgados/400/300' },
-  { id:'bebidas', name:'Bebidas', image:'https://picsum.photos/seed/cat-bebidas/400/300' },
-  { id:'doces', name:'Doces', image:'https://picsum.photos/seed/cat-doces/400/300' },
-  { id:'picole', name:'Picolé', image:'https://picsum.photos/seed/cat-picole/400/300' },
-  { id:'pipocas', name:'Pipocas', image:'https://picsum.photos/seed/cat-pipocas/400/300' },
+  { id:'bolos_caseiros', name:'Bolos Caseiros', image: DEFAULT_CAT_PLACEHOLDER },
+  { id:'bolos_vulcao', name:'Bolos Vulcão', image: DEFAULT_CAT_PLACEHOLDER },
+  { id:'bolos_festas', name:'Bolos para Festas', image: DEFAULT_CAT_PLACEHOLDER },
+  { id:'salgados', name:'Salgados', image: DEFAULT_CAT_PLACEHOLDER },
+  { id:'bebidas', name:'Bebidas', image: DEFAULT_CAT_PLACEHOLDER },
+  { id:'doces', name:'Doces', image: DEFAULT_CAT_PLACEHOLDER },
+  { id:'picole', name:'Picolé', image: DEFAULT_CAT_PLACEHOLDER },
+  { id:'pipocas', name:'Pipocas', image: DEFAULT_CAT_PLACEHOLDER },
 ]
 
 const mockProducts = [
   // Bolos Caseiros
-  { id:'bc-tradicional', name:'Tradicional', basePrice: 25.00, image:'https://picsum.photos/seed/bc-tradicional/800/600', category:'bolos_caseiros', available:true, descShort:'Bolo clássico fofinho', stockQty: 10, autoStockControl:true },
-  { id:'bc-formigueiro', name:'Formigueiro', basePrice: 28.00, image:'https://picsum.photos/seed/bc-formigueiro/800/600', category:'bolos_caseiros', available:true, descShort:'Com granulado de chocolate', stockQty: 6, autoStockControl:true },
-  { id:'bc-gotas-chocolate', name:'Gotas de Chocolate', basePrice: 30.00, image:'https://picsum.photos/seed/bc-gotas-chocolate/800/600', category:'bolos_caseiros', available:true, descShort:'Massa amanteigada com gotas', stockQty: 0, autoStockControl:true },
-  { id:'bc-chocolate', name:'Chocolate', basePrice: 30.00, image:'https://picsum.photos/seed/bc-chocolate/800/600', category:'bolos_caseiros', available:true, descShort:'Intenso e úmido', stockQty: 4, autoStockControl:true, promoActive:true, promoPrice: 24.90 },
-  { id:'bc-cafe', name:'Café', basePrice: 27.00, image:'https://picsum.photos/seed/bc-cafe/800/600', category:'bolos_caseiros', available:true, descShort:'Aromático com café especial', stockQty: 5, autoStockControl:true },
-  { id:'bc-dois-amores', name:'Dois Amores', basePrice: 32.00, image:'https://picsum.photos/seed/bc-dois-amores/800/600', category:'bolos_caseiros', available:true, descShort:'Chocolate e baunilha', stockQty: 3, autoStockControl:true },
-  { id:'bc-mesclado', name:'Mesclado', basePrice: 29.00, image:'https://picsum.photos/seed/bc-mesclado/800/600', category:'bolos_caseiros', available:true, descShort:'Marmorizado saboroso', stockQty: 2, autoStockControl:true },
-  { id:'bc-milho', name:'Milho', basePrice: 26.00, image:'https://picsum.photos/seed/bc-milho/800/600', category:'bolos_caseiros', available:true, descShort:'Tradicional nordestino', stockQty: 12, autoStockControl:true },
-  { id:'bc-leite', name:'Leite', basePrice: 25.00, image:'https://picsum.photos/seed/bc-leite/800/600', category:'bolos_caseiros', available:true, descShort:'Suave e cremoso', stockQty: 8, autoStockControl:true },
-  { id:'bc-limao-siciliano', name:'Limão Siciliano', basePrice: 31.00, image:'https://picsum.photos/seed/bc-limao-siciliano/800/600', category:'bolos_caseiros', available:true, descShort:'Cítrico refrescante', stockQty: 7, autoStockControl:true },
-  { id:'bc-cenoura-tradicional', name:'Cenoura Tradicional', basePrice: 28.00, image:'https://picsum.photos/seed/bc-cenoura-tradicional/800/600', category:'bolos_caseiros', available:true, descShort:'Clássico com cobertura', stockQty: 9, autoStockControl:true },
-  { id:'bc-cenoura-granulado', name:'Cenoura Granulado', basePrice: 28.00, image:'https://picsum.photos/seed/bc-cenoura-granulado/800/600', category:'bolos_caseiros', available:true, descShort:'Crocante por cima', stockQty: 5, autoStockControl:true },
-  { id:'bc-cenoura-mesclado', name:'Cenoura Mesclado', basePrice: 29.00, image:'https://picsum.photos/seed/bc-cenoura-mesclado/800/600', category:'bolos_caseiros', available:true, descShort:'Chocolate com cenoura', stockQty: 0, autoStockControl:true },
+  { id:'bc-tradicional', name:'Tradicional', basePrice: 25.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Bolo clássico fofinho', stockQty: 10, autoStockControl:true },
+  { id:'bc-formigueiro', name:'Formigueiro', basePrice: 28.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Com granulado de chocolate', stockQty: 6, autoStockControl:true },
+  { id:'bc-gotas-chocolate', name:'Gotas de Chocolate', basePrice: 30.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Massa amanteigada com gotas', stockQty: 0, autoStockControl:true },
+  { id:'bc-chocolate', name:'Chocolate', basePrice: 30.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Intenso e úmido', stockQty: 4, autoStockControl:true, promoActive:true, promoPrice: 24.90 },
+  { id:'bc-cafe', name:'Café', basePrice: 27.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Aromático com café especial', stockQty: 5, autoStockControl:true },
+  { id:'bc-dois-amores', name:'Dois Amores', basePrice: 32.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Chocolate e baunilha', stockQty: 3, autoStockControl:true },
+  { id:'bc-mesclado', name:'Mesclado', basePrice: 29.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Marmorizado saboroso', stockQty: 2, autoStockControl:true },
+  { id:'bc-milho', name:'Milho', basePrice: 26.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Tradicional nordestino', stockQty: 12, autoStockControl:true },
+  { id:'bc-leite', name:'Leite', basePrice: 25.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Suave e cremoso', stockQty: 8, autoStockControl:true },
+  { id:'bc-limao-siciliano', name:'Limão Siciliano', basePrice: 31.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Cítrico refrescante', stockQty: 7, autoStockControl:true },
+  { id:'bc-cenoura-tradicional', name:'Cenoura Tradicional', basePrice: 28.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Clássico com cobertura', stockQty: 9, autoStockControl:true },
+  { id:'bc-cenoura-granulado', name:'Cenoura Granulado', basePrice: 28.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Crocante por cima', stockQty: 5, autoStockControl:true },
+  { id:'bc-cenoura-mesclado', name:'Cenoura Mesclado', basePrice: 29.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_caseiros', available:true, descShort:'Chocolate com cenoura', stockQty: 0, autoStockControl:true },
 
   // Bolos Vulcão (preparado para variações de sabor futuras)
-  { id:'bv-mini', name:'Bolos Mini Vulcão', basePrice: 0.00, image:'https://picsum.photos/seed/bv-mini/800/600', category:'bolos_vulcao', available:true, descShort:'Mini vulcões deliciosos', stockQty: 10, autoStockControl:true, optionsGroup:{ id:'tamanho', name:'Tamanho', required:true, min:1, max:1, options:[{ id:'mini', name:'Mini', priceDelta:0 }] } },
-  { id:'bv-m', name:'Bolos M Vulcão', basePrice: 0.00, image:'https://picsum.photos/seed/bv-m/800/600', category:'bolos_vulcao', available:true, descShort:'Tamanho médio', stockQty: 10, autoStockControl:true, optionsGroup:{ id:'tamanho', name:'Tamanho', required:true, min:1, max:1, options:[{ id:'m', name:'M', priceDelta:0 }] } },
-  { id:'bv-g', name:'Bolos G Vulcão', basePrice: 0.00, image:'https://picsum.photos/seed/bv-g/800/600', category:'bolos_vulcao', available:true, descShort:'Tamanho grande', stockQty: 10, autoStockControl:true, optionsGroup:{ id:'tamanho', name:'Tamanho', required:true, min:1, max:1, options:[{ id:'g', name:'G', priceDelta:0 }] } },
+  { id:'bv-mini', name:'Bolos Mini Vulcão', basePrice: 0.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_vulcao', available:true, descShort:'Mini vulcões deliciosos', stockQty: 10, autoStockControl:true, optionsGroup:{ id:'tamanho', name:'Tamanho', required:true, min:1, max:1, options:[{ id:'mini', name:'Mini', priceDelta:0 }] } },
+  { id:'bv-m', name:'Bolos M Vulcão', basePrice: 0.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_vulcao', available:true, descShort:'Tamanho médio', stockQty: 10, autoStockControl:true, optionsGroup:{ id:'tamanho', name:'Tamanho', required:true, min:1, max:1, options:[{ id:'m', name:'M', priceDelta:0 }] } },
+  { id:'bv-g', name:'Bolos G Vulcão', basePrice: 0.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_vulcao', available:true, descShort:'Tamanho grande', stockQty: 10, autoStockControl:true, optionsGroup:{ id:'tamanho', name:'Tamanho', required:true, min:1, max:1, options:[{ id:'g', name:'G', priceDelta:0 }] } },
 ]
 
 function Home() {
