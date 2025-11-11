@@ -1073,6 +1073,7 @@ function Sacola(){
 
             <div className="price-box">
               <div className="price-row"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
+              <div className="price-row"><span>Desconto</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
               <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${deliveryFee.toFixed(2)}` : '—'}</span></div>
               <div className="price-row total"><span>TOTAL</span><span>R$ {total.toFixed(2)}</span></div>
             </div>
@@ -1689,10 +1690,12 @@ function Checkout(){
   const navigate = useNavigate()
   const { cart, setCart } = useContext(CartContext)
   const { auth } = useContext(AuthContext)
+  const { coupon } = useContext(CouponContext)
   const { establishment } = useContext(EstablishmentContext)
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
+  const discount = coupon ? (coupon.type==='percent' ? subtotal * (coupon.value/100) : coupon.value) : 0
   const fee = auth?.address?.fee ?? 0
-  const total = subtotal + fee
+  const total = subtotal - discount + fee
 
   const [paymentMethod, setPaymentMethod] = useState('Pix')
   const [stage, setStage] = useState('pagamento') // pagamento | confirmacao
@@ -1740,6 +1743,8 @@ function Checkout(){
         name: auth?.name || '',
         items: cart.map(i=> ({ id:i.id, productId:i.productId, name:i.name, qty:i.qty, unitPrice:i.unitPrice, choice: i.choice || null, obs: i.obs || '' })),
         subtotal,
+        discount: (coupon ? (coupon.type==='percent' ? subtotal * (coupon.value/100) : coupon.value) : 0),
+        coupon: (coupon ? { id: coupon.id, label: coupon.label, type: coupon.type, value: coupon.value } : null),
         fee,
         total,
         paymentMethod,
@@ -1858,6 +1863,10 @@ function Checkout(){
               <div>R$ {subtotal.toFixed(2)}</div>
             </div>
             <div className="row" style={{justifyContent:'space-between'}}>
+              <div className="muted">Desconto</div>
+              <div>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</div>
+            </div>
+            <div className="row" style={{justifyContent:'space-between'}}>
               <div className="muted">Taxa de entrega</div>
               <div>R$ {fee.toFixed(2)}</div>
             </div>
@@ -1895,6 +1904,10 @@ function Checkout(){
         <div className="row" style={{justifyContent:'space-between', marginTop:8}}>
           <div className="muted">Subtotal</div>
           <div>R$ {subtotal.toFixed(2)}</div>
+        </div>
+        <div className="row" style={{justifyContent:'space-between'}}>
+          <div className="muted">Desconto</div>
+          <div>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</div>
         </div>
         <div className="row" style={{justifyContent:'space-between'}}>
           <div className="muted">Taxa de entrega</div>
@@ -2220,6 +2233,12 @@ function OrderDetails(){
         ))}
         <div className="muted" style={{marginTop:8}}>Subtotal</div>
         <div>R$ {subtotal.toFixed(2)}</div>
+        {order?.discount>0 && (
+          <>
+            <div className="muted">Desconto</div>
+            <div>− R$ {order.discount.toFixed(2)}</div>
+          </>
+        )}
         <div className="muted">Taxa de entrega</div>
         <div>{fee==null? 'A definir' : `R$ ${fee.toFixed(2)}`}</div>
         <div style={{fontWeight:700, marginTop:8}}>Total R$ {total.toFixed(2)}</div>
@@ -2328,6 +2347,7 @@ function printComanda(order){
   const total = fmt(order?.total)
   const fee = order?.fee != null ? fmt(order.fee) : null
   const subtotal = order?.subtotal != null ? fmt(order.subtotal) : null
+  const discount = order?.discount != null ? fmt(order.discount) : null
   const obsPedido = (order?.notes||'').trim() || ''
     const endereco = [addr.street, addr.number].filter(Boolean).join(' ') || '—'
     const bairro = addr.neighborhood || ''
@@ -2393,6 +2413,7 @@ function printComanda(order){
       </div>
       <div class="section totals">
         ${subtotal!=null?`<div class="row"><div>Subtotal</div><div>R$ ${subtotal}</div></div>`:''}
+        ${discount!=null && parseFloat(discount)>0?`<div class="row"><div>Desconto</div><div>− R$ ${discount}</div></div>`:''}
         ${fee!=null?`<div class="row"><div>Entrega</div><div>R$ ${fee}</div></div>`:''}
         <div class="row big"><div>Total</div><div>R$ ${total}</div></div>
       </div>
