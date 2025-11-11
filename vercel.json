@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://bloody-cicily-svn-3d1231db.koyeb.app/api/:path*"
+    },
+    {
       "source": "/((?!assets|favicon\\.ico|robots\\.txt|manifest\\.json).*)",
       "destination": "/index.html"
     }

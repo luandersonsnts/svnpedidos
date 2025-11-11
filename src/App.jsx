@@ -4037,7 +4037,16 @@ function Loyalty(){
 }
 
 export default function App() {
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+  const isLocalHost = (()=>{ try { const h = typeof window!=='undefined'? window.location.hostname : ''; return /^(localhost|127\.0\.0\.1)$/i.test(h) } catch { return true } })()
+  const apiBase = import.meta.env.VITE_API_URL || (isLocalHost ? 'http://localhost:3001' : '/api')
+  // Aviso em produção se a API estiver apontando para localhost (variável não configurada)
+  try {
+    const host = typeof window !== 'undefined' ? window.location.hostname : ''
+    const isProdLike = host && !/^(localhost|127\.0\.0\.1)$/i.test(host)
+    if (isProdLike && /localhost:3001/.test(apiBase)) {
+      console.warn('VITE_API_URL não configurado: frontend está tentando usar http://localhost:3001 em produção. Configure VITE_API_URL no Vercel para habilitar sincronização de estabelecimento.')
+    }
+  } catch {}
   const [coupon, setCoupon] = useState(null)
   const [establishment, setEstablishment] = useState(() => {
     try {
