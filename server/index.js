@@ -2,7 +2,6 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import bodyParser from 'body-parser'
-import Database from 'better-sqlite3'
 
 // Flag para usar libSQL (Turso) se disponível
 const useLibsql = !!process.env.LIBSQL_DB_URL
@@ -24,7 +23,8 @@ const bootstrap = async () => {
       }),
     }
   } else {
-    const sqlite = new Database('data.sqlite')
+    const { default: BetterSqlite3 } = await import('better-sqlite3')
+    const sqlite = new BetterSqlite3('data.sqlite')
     db = {
       exec: (sql) => sqlite.exec(sql),
       prepare: (sql) => { const stmt = sqlite.prepare(sql); return { get: (...args)=> stmt.get(...args), all: (...args)=> stmt.all(...args), run: (...args)=> stmt.run(...args) } },
