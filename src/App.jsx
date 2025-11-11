@@ -1,5 +1,6 @@
 import React, { useState, useContext, createContext, useEffect, useMemo, useRef } from 'react'
 import { Routes, Route, Link, useNavigate, useLocation, useParams } from 'react-router-dom'
+import Button from './ui/Button'
 
 // Contexto simples para cupom aplicado
 const CouponContext = createContext({ coupon: null, setCoupon: () => {} })
@@ -397,7 +398,7 @@ function Home() {
             <div style={{fontWeight:700}}>Que tal usar um cupom?</div>
             <div className="muted">2 disponíveis</div>
           </div>
-          <button className="btn outline" onClick={()=> setShowCoupons(true)}>VER CUPONS</button>
+<Button variant="outline" onClick={()=> setShowCoupons(true)}>VER CUPONS</Button>
         </div>
         {showCoupons && <CouponsModal onClose={()=> setShowCoupons(false)} />}
       </div>
@@ -429,7 +430,7 @@ function Home() {
         <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
           <div style={{fontWeight:700}}>Itens{selectedCategory? ` • ${categories.find(c=>c.id===selectedCategory)?.name||''}`:''}</div>
           <div style={{display:'flex', alignItems:'center', gap:8}}>
-            {cart.length>0 && <Link to="/sacola" className="btn secondary">Ver sacola ({cart.length})</Link>}
+{cart.length>0 && <Button to="/sacola" variant="secondary">Ver sacola ({cart.length})</Button>}
           </div>
         </div>
         {(() => {
@@ -4658,7 +4659,7 @@ function EstabConfig(){
           </div>
       </div>
       <div style={{marginTop:12}}>
-        <button className="btn btn-lg btn-block" disabled={!canSave} onClick={save}>Salvar e voltar</button>
+<Button size="lg" block disabled={!canSave} onClick={save}>Salvar e voltar</Button>
       </div>
       {editor && (
         <ImageEditorModal
