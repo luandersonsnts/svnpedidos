@@ -592,13 +592,36 @@ function CouponsModal({ onClose }){
     { id:'CUPOM5', label:'5% TERÇA E QUARTA', description:'Cupom disponível apenas terça e quarta.', type:'percent', value:5 },
     { id:'PRIMEIRA', label:'PRIMEIRO COMPRA', description:'Disponível apenas para novos clientes.', type:'shipping_free', value:0 }
   ]
+  // Elegibilidade dinâmica
+  const today = new Date().getDay() // 0=Dom,1=Seg,2=Ter,3=Qua,4=Qui,5=Sex,6=Sab
+  const allowWeek = (today === 2 || today === 3)
+  const phoneNorm = normalizePhone(auth?.phone)
+  const isFirstPurchase = (() => {
+    if (!phoneNorm) return false
+    try { return !getOrdersLS().some(o => normalizePhone(o.phone) === phoneNorm) } catch { return false }
+  })()
+  const eligible = { CUPOM5: allowWeek, PRIMEIRA: isFirstPurchase }
   const applyCode = () => {
     if (!auth?.registered && !auth?.hasPassword){
       alert('Para usar cupons, complete seu cadastro com senha.')
       return
     }
-    const found = available.find(a => a.id.toLowerCase() === code.trim().toLowerCase())
-    if (found) { setCoupon(found); onClose() }
+    const typed = code.trim()
+    // UX: se nenhum código foi digitado, mas um cupom já está selecionado via rádio, apenas fechamos
+    if (!typed){
+      if (coupon){ onClose(); return }
+      alert('Selecione um cupom ou digite um código.');
+      return
+    }
+    const found = available.find(a => a.id.toLowerCase() === typed.toLowerCase())
+    if (found){
+      if (!eligible[found.id]){
+        if (found.id==='CUPOM5') alert('Este cupom só fica disponível na terça e na quarta.')
+        else if (found.id==='PRIMEIRA') alert('Este cupom é exclusivo para a primeira compra deste número.')
+        return
+      }
+      setCoupon(found); onClose()
+    }
   }
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -620,10 +643,10 @@ function CouponsModal({ onClose }){
         <div>
           {available.map(a => (
             <label key={a.id} className="option">
-              <input type="radio" name="cupom" checked={coupon?.id===a.id} onChange={()=> { if (!auth?.registered && !auth?.hasPassword){ alert('Para usar cupons, complete seu cadastro com senha.'); return } setCoupon(a) }} />
+              <input type="radio" name="cupom" checked={coupon?.id===a.id} disabled={!eligible[a.id]} onChange={()=> { if (!auth?.registered && !auth?.hasPassword){ alert('Para usar cupons, complete seu cadastro com senha.'); return } if (!eligible[a.id]){ if (a.id==='CUPOM5') alert('Disponível apenas terça e quarta.'); else alert('Disponível somente para primeira compra.'); return } setCoupon(a) }} />
               <div style={{flex:1}}>
                 <div style={{fontWeight:600}}>{a.label}</div>
-                <div className="muted">{a.description}</div>
+                <div className="muted">{a.description}{!eligible[a.id] ? (a.id==='CUPOM5' ? ' — indisponível hoje' : ' — não é primeira compra') : ''}</div>
                 {a.type==='percent' && <div className="muted">{a.value} %</div>}
                 {a.type==='shipping_free' && <div className="muted">ENTREGA GRÁTIS</div>}
               </div>
@@ -660,6 +683,16 @@ function HomeAside({ onOpenCoupons }){
   const incQty = (id) => setCart(prev => prev.map(i => i.id===id ? { ...i, qty: i.qty + 1 } : i))
   const decQty = (id) => setCart(prev => prev.map(i => i.id===id ? { ...i, qty: Math.max(1, i.qty - 1) } : i))
   const removeItem = (id) => setCart(prev => prev.filter(i => i.id !== id))
+
+  // Contagem dinâmica de cupons disponíveis (regras)
+  const today = new Date().getDay()
+  const allowWeek = (today === 2 || today === 3)
+  const phoneNorm = normalizePhone(auth?.phone)
+  const firstAvailable = (() => {
+    if (!phoneNorm) return false
+    try { return !getOrdersLS().some(o => normalizePhone(o.phone) === phoneNorm) } catch { return false }
+  })()
+  const availableCount = (allowWeek ? 1 : 0) + (firstAvailable ? 1 : 0)
 
   return (
     <aside className="feed-aside">
@@ -781,8 +814,8 @@ function HomeAside({ onOpenCoupons }){
                 <path d="M4 7a3 3 0 013-3h10a3 3 0 013 3v3a2 2 0 11-2 2 2 2 0 112 2v3a3 3 0 01-3 3H7a3 3 0 01-3-3v-3a2 2 0 112-2 2 2 0 11-2-2V7z" stroke="#6b7280" strokeWidth="1.5"/>
               </svg>
               <div>
-                <div style={{fontWeight:700}}>{coupon ? 'PRIMEIRO COMPRA' : 'Que tal usar um cupom?'}</div>
-                <div className="muted">{coupon ? 'Cupom aplicado' : '2 disponíveis'}</div>
+                <div style={{fontWeight:700}}>{coupon ? (coupon.label || 'Cupom aplicado') : 'Que tal usar um cupom?'}</div>
+                <div className="muted">{coupon ? 'Cupom aplicado' : (availableCount===1 ? '1 disponível' : `${availableCount} disponíveis`)}</div>
               </div>
             </div>
             <button className="btn outline btn-sm" onClick={onOpenCoupons}>›</button>
@@ -1267,7 +1300,8 @@ function CepModal({ onClose }){
     if (!base || !dest) return addr
     const km = haversineKm(base.lat, base.lon, dest.lat, dest.lon)
     const fee = getFeeByDistance(km)
-    return { ...addr, distanceKm: Math.round(km * 10) / 10, fee }
+    // Fallback: se não houver taxa por distância, mantenha a taxa já definida (cidade permitida)
+    return { ...addr, distanceKm: Math.round(km * 10) / 10, fee: fee ?? addr.fee }
   }
 
   const salvar = async () => {
@@ -4190,7 +4224,18 @@ function EstablishmentInfoModal({ onClose }){
   const { establishment } = useContext(EstablishmentContext)
   const est = establishment || mockEstablishment
   const [tab, setTab] = useState('sobre')
-  const waNumber = '5574981213461'
+  // Número do WhatsApp do estabelecimento (prioriza LS e cadastro do estabelecimento)
+  const waNumber = (() => {
+    try {
+      const eid = getCurrentEstabId()
+      const fromLS = localStorage.getItem(`whatsappNumber_${eid}`) || ''
+      const fromEstab = Array.isArray(est?.phones) ? (est.phones[0] || '') : ''
+      const raw = fromLS || fromEstab || ''
+      return normalizePhone(raw || '5574981213461')
+    } catch {
+      return '5574981213461'
+    }
+  })()
   const instaHandle = (est.instagram || '').replace(/^@/, '')
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -4210,7 +4255,8 @@ function EstablishmentInfoModal({ onClose }){
             <div className="row" style={{alignItems:'center', gap:12}}>
               <img className="estab-avatar" src={est.avatarImage || mockEstablishment.avatarImage} alt="Logo" loading="lazy" decoding="async" />
               <div style={{display:'flex', alignItems:'center', gap:8}}>
-                <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h4l2-2h4l2 2h4v12H4V7zm8 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"></path></svg>
+                {/* Logo do Instagram */}
+                <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h10a5 5 0 015 5v10a5 5 0 01-5 5H7a5 5 0 01-5-5V7a5 5 0 015-5zm5 5.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zm6.5-3a1 1 0 110 2 1 1 0 010-2z"></path></svg>
                 {instaHandle ? (
                   <a className="insta-link" href={`https://instagram.com/${instaHandle}`} target="_blank" rel="noopener noreferrer" style={{fontWeight:600, textDecoration:'none'}}>{est.instagram}</a>
                 ) : (
@@ -4237,6 +4283,23 @@ function EstablishmentInfoModal({ onClose }){
                 <div key={idx}>{line}</div>
               ))}
             </div>
+            {(() => {
+              const b = (est && est.baseAddress) || {}
+              const city = b.city || (est && est.city) || ''
+              const uf = b.uf || (est && est.uf) || ''
+              const streetLine = [b.street, b.number].filter(Boolean).join(', ')
+              const neigh = b.neighborhood ? ` ${b.neighborhood}` : ''
+              const full = [streetLine, neigh, city, uf].filter(Boolean).join(', ').trim()
+              const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(full || (est?.addressLines||[]).join(', '))}`
+              return (
+                <div style={{marginTop:12}}>
+                  <a className="contact-btn" href={mapsUrl} target="_blank" rel="noopener noreferrer">
+                    <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"></path></svg>
+                    <span>Abrir localização</span>
+                  </a>
+                </div>
+              )
+            })()}
           </div>
         )}
 
