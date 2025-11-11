@@ -175,12 +175,12 @@ function Home() {
         if (json && json.inactive){ setEstInactive(true); setApiCats([]); setApiProds([]); return }
         const cats = Array.isArray(json.categories)? json.categories : []
         const grouped = json.productsByCategory || {}
-        const catsUi = cats.map(c=> ({ id: c.id, name: c.name, image: c.image_url || `https://picsum.photos/seed/cat-${c.id}/400/300` }))
+        const catsUi = cats.map(c=> ({ id: c.id, name: c.name, image: c.image_url || DEFAULT_CAT_PLACEHOLDER }))
         const prodsUi = Object.keys(grouped).flatMap(catId => (grouped[catId]||[]).map(x=> ({
           id: x.id,
           name: x.name,
           basePrice: Number(x.base_price||0),
-          image: x.image_url,
+          image: x.image_url || DEFAULT_PRODUCT_PLACEHOLDER,
           category: x.category_id,
           status: x.status || 'active',
           available: !!x.available,
@@ -301,6 +301,7 @@ function Home() {
               fetchpriority="high"
               decoding="async"
               crossOrigin="anonymous"
+              onError={(e)=> { e.currentTarget.src = DEFAULT_COVER_PLACEHOLDER }}
               onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.coverImage) || e.currentTarget.src }}
             />
             <div className="hero-gradient" />
@@ -476,7 +477,7 @@ function Home() {
                       return (
                         <div key={p.id} className={`card ${isSoldOut?'soldout':''}`} onClick={()=> { setModalProduct(p); setModalChoice(null); setModalQty(1); setModalObs('') }}>
                           <div style={{position:'relative'}}>
-                            <img src={p.image} alt={p.name} loading="lazy" decoding="async" />
+                            <img src={p.image} alt={p.name} loading="lazy" decoding="async" onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} />
                             <div className="labels">
                               {p.promoActive && <span className="badge red">Promoção</span>}
                               {isSoldOut && <span className="badge gray">Esgotado</span>}
@@ -2032,8 +2033,8 @@ function Checkout(){
 
 function Promotions(){
   const promotions = [
-    { id:'promo-bolo-macaxeira', productId:'bolo-macaxeira', name:'Bolo de macaxeira com tartalete', image:'https://picsum.photos/seed/bolo1/800/600', description:'Aproveite! Promoção por tempo limitado.', originalPrice: 35.0, promoPrice: 25.0 },
-    { id:'promo-bolo-coco', productId:'bolo-coco', name:'Bolo de coco', image:'https://picsum.photos/seed/bolo2/800/600', description:'Tradicional e delicioso.', originalPrice: 25.0, promoPrice: 20.0 }
+  { id:'promo-bolo-macaxeira', productId:'bolo-macaxeira', name:'Bolo de macaxeira com tartalete', image: DEFAULT_PRODUCT_PLACEHOLDER, description:'Aproveite! Promoção por tempo limitado.', originalPrice: 35.0, promoPrice: 25.0 },
+  { id:'promo-bolo-coco', productId:'bolo-coco', name:'Bolo de coco', image: DEFAULT_PRODUCT_PLACEHOLDER, description:'Tradicional e delicioso.', originalPrice: 25.0, promoPrice: 20.0 }
   ]
   const [showEmpty, setShowEmpty] = useState(promotions.length === 0)
   const [selected, setSelected] = useState(null)
@@ -3302,12 +3303,12 @@ function AdminItems(){
       try {
         const c = await fetch(`${apiBase}/api/categorias?establishment_id=${eid}`).then(r=> r.ok? r.json(): [])
         const p = await fetch(`${apiBase}/api/produtos?establishment_id=${eid}`).then(r=> r.ok? r.json(): [])
-        const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || `https://picsum.photos/seed/cat-${x.id}/400/300` }))
+        const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
           id: x.id,
           name: x.name,
           basePrice: Number(x.base_price||0),
-          image: x.image_url,
+          image: x.image_url || DEFAULT_PRODUCT_PLACEHOLDER,
           category: x.category_id,
           status: x.status || 'active',
           available: !!x.available,
@@ -3487,7 +3488,7 @@ function AdminItems(){
     fetch(`${apiBase}/api/produtos/${encodeURIComponent(id)}`, { method:'DELETE', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, by_user_id: 'admin' }) })
       .then(()=> fetch(`${apiBase}/api/produtos?establishment_id=${eid}`).then(r=> r.json()).then(p=>{
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
-          id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url, category: x.category_id,
+          id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url || DEFAULT_PRODUCT_PLACEHOLDER, category: x.category_id,
           status: x.status || 'active', available: !!x.available, descShort: x.desc_short || '', notes: x.notes || '',
           prepTimeMin: x.prep_time_min || undefined, stockQty: x.stock_qty || 0, autoStockControl: !!x.auto_stock_control,
           sku: x.sku || undefined, promoActive: !!x.promo_active, promoPrice: x.promo_price!=null? Number(x.promo_price): undefined,
@@ -3518,7 +3519,7 @@ function AdminItems(){
     fetch(`${apiBase}/api/produtos/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
       .then(()=> fetch(`${apiBase}/api/produtos?establishment_id=${eid}`).then(r=> r.json()).then(p=>{
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
-          id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url, category: x.category_id,
+          id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url || DEFAULT_PRODUCT_PLACEHOLDER, category: x.category_id,
           status: x.status || 'active', available: !!x.available, descShort: x.desc_short || '', notes: x.notes || '',
           prepTimeMin: x.prep_time_min || undefined, stockQty: x.stock_qty || 0, autoStockControl: !!x.auto_stock_control,
           sku: x.sku || undefined, promoActive: !!x.promo_active, promoPrice: x.promo_price!=null? Number(x.promo_price): undefined,
@@ -3556,10 +3557,10 @@ function AdminItems(){
     if (!name) return
     const id = name.toLowerCase().replace(/[^a-z0-9]+/gi,'-')
     if (cats.some(c=> c.id===id)) { return }
-    const image = newCatImage || `https://picsum.photos/seed/cat-${id}/400/300`
+    const image = newCatImage || DEFAULT_CAT_PLACEHOLDER
     fetch(`${apiBase}/api/categorias`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, id, name, image_url: image }) })
       .then(()=> fetch(`${apiBase}/api/categorias?establishment_id=${eid}`).then(r=> r.json()).then(c=>{
-        const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || `https://picsum.photos/seed/cat-${x.id}/400/300` }))
+        const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         setCats(catsUi)
       }))
     setNewCatName(''); setNewCatImage('')
@@ -3568,7 +3569,7 @@ function AdminItems(){
     const payload = { establishment_id: eid, name: fields.name, image_url: fields.image_url }
     return fetch(`${apiBase}/api/categorias/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
       .then(()=> fetch(`${apiBase}/api/categorias?establishment_id=${eid}`).then(r=> r.json()).then(c=>{
-        const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || `https://picsum.photos/seed/cat-${x.id}/400/300` }))
+    const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         setCats(catsUi)
       }))
   }
@@ -4322,7 +4323,7 @@ function RVPedidos(){
       <div className="rv-card">
         <h2 className="rv-title">Seja Bem vindo(a) RV PEDIDOS!</h2>
         <div className="rv-sub">Você está no Rv Pedidos, aqui você irá responder para entendermos as suas necessidades.</div>
-        <img className="rv-hero" src="https://picsum.photos/seed/rv/1000/600" alt="Sistema RV Pedidos" loading="lazy" decoding="async" />
+  <img className="rv-hero" src={DEFAULT_PRODUCT_PLACEHOLDER} alt="Sistema RV Pedidos" loading="lazy" decoding="async" />
         <h3 style={{margin:'8px 0'}}>Precisamos te conhecer.</h3>
         <div className="rv-form">
           <div className="rv-field">
