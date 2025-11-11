@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#52220c" />
+    <title>Seu Estabelecimento</title>
+    <!-- Canonical and Open Graph (valores atualizados dinamicamente via script) -->
+    <link rel="canonical" href="/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Seu Estabelecimento" />
+    <meta property="og:title" content="Seu Estabelecimento" />
+    <meta property="og:url" content="/" />
+    <meta property="og:image" content="/img/logo.png" />
+    <!-- Icons (valor padrão; será atualizado dinamicamente) -->
+    <link rel="icon" href="/img/logo.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/img/logo.png" />
+    <!-- Preload hero and logo images (atualizado dinamicamente via script) -->
+
+    <!-- Inicialização antecipada de tema (cores) a partir do localStorage -->
+    <script>
+      (function(){
+        try {
+          var preferId = localStorage.getItem('currentEstabId') || 'mundodocen5';
+          // Se existir estabelecimento para mundodocen5 e não houver currentEstabId, definir para garantir preview correto
+          if (!localStorage.getItem('currentEstabId') && localStorage.getItem('establishment_mundodocen5')) {
+            localStorage.setItem('currentEstabId', 'mundodocen5');
+            preferId = 'mundodocen5';
+          }
+          var est = null;
+          if (preferId) {
+            try { est = JSON.parse(localStorage.getItem('establishment_' + preferId) || '{}'); } catch(e) { est = {}; }
+          }
+          if (!est || Object.keys(est).length === 0) {
+            try { est = JSON.parse(localStorage.getItem('establishment') || '{}'); } catch(e) { est = {}; }
+          }
+          var root = document.documentElement;
+          var setVar = function(k, v, fallback){ root.style.setProperty(k, (v && String(v).trim()) ? v : fallback); };
+          setVar('--primary', est.brandPrimary, '#52220c');
+          setVar('--accent', est.brandAccent, '#f59e0b');
+          setVar('--bg', est.brandBg, '#f4f5f7');
+          setVar('--text', est.brandText, '#1f2937');
+          setVar('--muted', est.brandMuted, '#6b7280');
+          var themeMeta = document.querySelector('meta[name="theme-color"]');
+          if (themeMeta) themeMeta.setAttribute('content', (est.brandPrimary && String(est.brandPrimary).trim()) ? est.brandPrimary : '#52220c');
+        } catch (e) { /* noop */ }
+      })();
+    </script>
+
+    <!-- Atualização dinâmica de ícones, OG e canonical -->
+    <script>
+      (function(){
+        try {
+          var preferId = localStorage.getItem('currentEstabId') || 'mundodocen5';
+          var est = null;
+          try { est = JSON.parse(localStorage.getItem('establishment_' + preferId) || '{}'); } catch(e) { est = {}; }
+          if (!est || Object.keys(est).length === 0) {
+            try { est = JSON.parse(localStorage.getItem('establishment') || '{}'); } catch(e) { est = {}; }
+          }
+          var canonical = document.querySelector('link[rel="canonical"]');
+          if (canonical) canonical.href = window.location.href;
+          var ogUrl = document.querySelector('meta[property="og:url"]');
+          if (ogUrl) ogUrl.setAttribute('content', window.location.href);
+          var ogTitle = document.querySelector('meta[property="og:title"]');
+          if (ogTitle) ogTitle.setAttribute('content', (est.name || 'Seu Estabelecimento'));
+          var ogSite = document.querySelector('meta[property="og:site_name"]');
+          if (ogSite) ogSite.setAttribute('content', (est.name || 'Seu Estabelecimento'));
+          var iconHref = (est.avatarImage && String(est.avatarImage).trim()) ? est.avatarImage : '/img/logo.png';
+          var coverHref = (est.coverImage && String(est.coverImage).trim()) ? est.coverImage : iconHref;
+          var linkIcon = document.querySelector('link[rel="icon"]');
+          if (linkIcon) linkIcon.href = iconHref;
+          var appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+          if (appleIcon) appleIcon.href = iconHref;
+          var ogImage = document.querySelector('meta[property="og:image"]');
+          if (ogImage) ogImage.setAttribute('content', iconHref);
+          // Preloads dinâmicos
+          if (iconHref && iconHref !== '/img/logo.png') {
+            var plLogo = document.createElement('link'); plLogo.rel='preload'; plLogo.as='image'; plLogo.href=iconHref; document.head.appendChild(plLogo);
+          }
+          if (coverHref && coverHref !== '/img/logo.png') {
+            var plCover = document.createElement('link'); plCover.rel='preload'; plCover.as='image'; plCover.href=coverHref; document.head.appendChild(plCover);
+          }
+        } catch(e) {}
+      })();
+    </script>
+
+    <!-- Analytics (carregado apenas fora de localhost e respeita Do Not Track) -->
+    <script>
+      (function(){
+        var host = location.hostname;
+        var isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+        var dnt = (navigator.doNotTrack === '1' || window.doNotTrack === '1' || navigator.msDoNotTrack === '1');
+
+        if (isLocal || dnt) {
+          console.log('[analytics] Desativado em ambiente local ou com Do Not Track');
+          return;
+        }
+
+        // Google Analytics (GA4)
+        var gaScript = document.createElement('script');
+        gaScript.async = true;
+        gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=G-60KJ8VD7WW';
+        document.head.appendChild(gaScript);
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){window.dataLayer.push(arguments);} 
+        window.gtag = gtag;
+        gtag('js', new Date());
+        gtag('config', 'G-60KJ8VD7WW');
+
+        // Facebook Pixel
+        (function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+          n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+          n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+          t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)})(window, document,'script',
+          'https://connect.facebook.net/en_US/fbevents.js');
+        fbq('init', '4260594494262081');
+        fbq('track', 'PageView');
+      })();
+    </script>
+  </head>
+  <body>
+    <noscript aria-hidden="true">Você precisa habilitar o javascript para executar este aplicativo. Se não souber como fazer isso, entre em contato com o suporte.</noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
