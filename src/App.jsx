@@ -4586,7 +4586,7 @@ function EstabConfig(){
     // fallback: deixar como está (CSS aceitará nomes), mas não será hex
     return s
   }
-  const save = () => {
+  const save = async () => {
     const next = { ...(establishment || {}), id, adminPassword, name, city, uf, instagram, coverImage, avatarImage, payments, hours: ensureSevenDays(hours), brandPrimary: normalizeColorToHex(brandPrimary), brandAccent: normalizeColorToHex(brandAccent), brandBg: normalizeColorToHex(brandBg), brandText: normalizeColorToHex(brandText), brandMuted: normalizeColorToHex(brandMuted), phones: [whatsapp].filter(Boolean) }
     // Persistir estabelecimento no backend para habilitar cardápio
     try {
