@@ -586,12 +586,17 @@ function ProductModal({ product, choice, setChoice, qty, setQty, obs, setObs, on
 
 function CouponsModal({ onClose }){
   const { coupon, setCoupon } = useContext(CouponContext)
+  const { auth } = useContext(AuthContext)
   const [code, setCode] = useState('')
   const available = [
     { id:'CUPOM5', label:'5% TERÇA E QUARTA', description:'Cupom disponível apenas terça e quarta.', type:'percent', value:5 },
     { id:'PRIMEIRA', label:'PRIMEIRO COMPRA', description:'Disponível apenas para novos clientes.', type:'shipping_free', value:0 }
   ]
   const applyCode = () => {
+    if (!auth?.registered && !auth?.hasPassword){
+      alert('Para usar cupons, complete seu cadastro com senha.')
+      return
+    }
     const found = available.find(a => a.id.toLowerCase() === code.trim().toLowerCase())
     if (found) { setCoupon(found); onClose() }
   }
@@ -615,7 +620,7 @@ function CouponsModal({ onClose }){
         <div>
           {available.map(a => (
             <label key={a.id} className="option">
-              <input type="radio" name="cupom" checked={coupon?.id===a.id} onChange={()=> setCoupon(a)} />
+              <input type="radio" name="cupom" checked={coupon?.id===a.id} onChange={()=> { if (!auth?.registered && !auth?.hasPassword){ alert('Para usar cupons, complete seu cadastro com senha.'); return } setCoupon(a) }} />
               <div style={{flex:1}}>
                 <div style={{fontWeight:600}}>{a.label}</div>
                 <div className="muted">{a.description}</div>
@@ -1442,7 +1447,7 @@ function Tabs(){
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches)
   const [loginPhone, setLoginPhone] = useState('')
   const loginDigits = loginPhone.replace(/\D/g, '')
-  const validLogin = (loginDigits.length >= 10 || loginPhone.includes('@'))
+  const validLogin = (loginDigits.length >= 10)
   const submitLogin = () => {
     if (!validLogin) return
     setAuth({ loggedIn:true, phone: loginPhone, name: auth?.name })
@@ -1525,8 +1530,8 @@ function Tabs(){
           <div className="account-dropdown" style={{minWidth:280}}>
             <div style={{fontWeight:700, marginBottom:6}}>Entrar</div>
             <div className="field">
-              <label className="muted">Celular ou e-mail</label>
-              <input placeholder="Digite seu celular ou e-mail" value={loginPhone} onChange={(e)=> setLoginPhone(e.target.value)} />
+              <label className="muted">Celular</label>
+              <input placeholder="Digite seu celular" value={loginPhone} onChange={(e)=> setLoginPhone(e.target.value.replace(/\D/g,'').slice(0,11))} inputMode="tel" autoComplete="tel" />
             </div>
             <div style={{marginTop:10, display:'flex', gap:8}}>
             <Button disabled={!validLogin} onClick={submitLogin}>Continuar</Button>
@@ -1551,7 +1556,7 @@ function TopNav(){
   const isActive = (path) => location.pathname === path
   const [loginPhone, setLoginPhone] = useState('')
   const loginDigits = loginPhone.replace(/\D/g, '')
-  const validLogin = (loginDigits.length >= 10 || loginPhone.includes('@'))
+  const validLogin = (loginDigits.length >= 10)
   const submitLogin = () => {
     if (!validLogin) return
     setAuth({ loggedIn:true, phone: loginPhone, name: auth?.name })
@@ -1631,8 +1636,8 @@ function TopNav(){
           <div className="account-dropdown" style={{minWidth:300}}>
             <div style={{fontWeight:700, marginBottom:6}}>Entrar</div>
             <div className="field">
-              <label className="muted">Celular ou e-mail</label>
-              <input placeholder="Digite seu celular ou e-mail" value={loginPhone} onChange={(e)=> setLoginPhone(e.target.value)} />
+              <label className="muted">Celular</label>
+              <input placeholder="Digite seu celular" value={loginPhone} onChange={(e)=> setLoginPhone(e.target.value.replace(/\D/g,'').slice(0,11))} inputMode="tel" autoComplete="tel" />
             </div>
             <div style={{marginTop:10, display:'flex', gap:8}}>
             <Button disabled={!validLogin} onClick={submitLogin}>Continuar</Button>
@@ -3841,7 +3846,6 @@ function Profile(){
           <button className="linklike" onClick={()=> setShowComplete(true)}>Editar perfil</button>
           <button className="linklike" onClick={()=> alert('Trocar senha em breve')}>Trocar senha</button>
           <button className="linklike" onClick={()=> navigate('/fidelidade')}>Programa de fidelidade</button>
-          <Link to="/estabelecimento">Configurar estabelecimento</Link>
           <button className="linklike" onClick={()=> alert('Sair (mock)')}>Sair</button>
         </div>
       </div>
@@ -3856,11 +3860,22 @@ function Profile(){
 }
 
 function CompleteProfileModal({ onClose }){
+  const { auth, setAuth } = useContext(AuthContext)
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [pass, setPass] = useState('')
   const [confirm, setConfirm] = useState('')
   const canConfirm = phone.trim() && name.trim() && pass && confirm && pass === confirm
+  const confirmProfile = () => {
+    if (!canConfirm) return
+    try {
+      const eid = getCurrentEstabId()
+      const key = `user_${eid}_${(phone||'').replace(/\D/g,'')}`
+      localStorage.setItem(key, JSON.stringify({ name, hasPassword:true }))
+    } catch(e) {}
+    try { setAuth({ ...(auth||{}), loggedIn:true, phone, name, hasPassword:true, registered:true }) } catch(e) {}
+    onClose()
+  }
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal simple" onClick={(e)=> e.stopPropagation()}>
@@ -3887,7 +3902,7 @@ function CompleteProfileModal({ onClose }){
           <input type="password" placeholder="Confirmar Senha" value={confirm} onChange={(e)=> setConfirm(e.target.value)} />
         </div>
         <div style={{marginTop:12}}>
-          <button className="btn" disabled={!canConfirm} onClick={onClose}>CONFIRMAR</button>
+            <Button disabled={!canConfirm} onClick={confirmProfile}>Confirmar</Button>
         </div>
       </div>
     </div>
@@ -3895,13 +3910,25 @@ function CompleteProfileModal({ onClose }){
 }
 
 function Loyalty(){
+  const { auth } = useContext(AuthContext)
+  const [showComplete, setShowComplete] = useState(false)
   return (
     <div className="container">
       <h2 className="page-title">Programa de fidelidade</h2>
       <div className="section-card">
         <div>A cada R$ 1,00 em compras você ganha 1 ponto que pode ser trocado por prêmios.</div>
-        <div className="muted" style={{marginTop:6}}>Complete seu cadastro para começar a pontuar.</div>
+        {!auth?.registered && !auth?.hasPassword ? (
+          <div style={{marginTop:8}}>
+            <div className="muted">Para usar o programa de fidelidade, complete seu cadastro.</div>
+            <div style={{marginTop:8}}>
+                <Button onClick={()=> setShowComplete(true)}>Completar cadastro</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="muted" style={{marginTop:6}}>Você está apto a acumular e resgatar pontos.</div>
+        )}
       </div>
+      {showComplete && <CompleteProfileModal onClose={()=> setShowComplete(false)} />}
       <Footer />
       <Tabs />
     </div>
@@ -4057,11 +4084,10 @@ export default function App() {
           <Route path="/sucesso" element={<Success />} />
           <Route path="/perfil" element={<Profile />} />
           <Route path="/fidelidade" element={<Loyalty />} />
-          <Route path="/checkout" element={<Checkout />} />
-          <Route path="/rv-pedidos" element={<RVPedidos />} />
-          <Route path="/estabelecimento" element={<EstabConfig />} />
-          <Route path="/admin/estabelecimento" element={<EstabConfig />} />
-          <Route path="/admin" element={<AdminLogin />} />
+      <Route path="/checkout" element={<Checkout />} />
+      <Route path="/rv-pedidos" element={<RVPedidos />} />
+      <Route path="/admin/estabelecimento" element={<EstabConfig />} />
+      <Route path="/admin" element={<AdminLogin />} />
           <Route path="/admin/painel" element={<AdminPanel />} />
           <Route path="/admin/pedidos" element={<AdminOrders />} />
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
