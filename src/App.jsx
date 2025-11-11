@@ -3125,7 +3125,7 @@ function AdminItems(){
   const eid = getCurrentEstabId()
   const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
-  const apiBase = 'http://localhost:3001'
+  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001'
   const [estStatus, setEstStatus] = useState(null)
   useEffect(()=>{ fetch(`${apiBase}/api/establishment/${eid}/status`).then(r=> r.ok? r.json(): null).then(s=> setEstStatus(s)).catch(()=> setEstStatus(null)) }, [eid])
   const [catAvailability, setCatAvailability] = useState(()=> { try { return JSON.parse(localStorage.getItem(`categoriesAvailability_${eid}`) || '{}') } catch(e){ return {} } })
@@ -4280,6 +4280,12 @@ function EstabConfig(){
   }
   const save = () => {
     const next = { ...(establishment || {}), id, adminPassword, name, city, uf, instagram, coverImage, avatarImage, payments, hours: ensureSevenDays(hours), brandPrimary: normalizeColorToHex(brandPrimary), brandAccent: normalizeColorToHex(brandAccent), brandBg: normalizeColorToHex(brandBg), brandText: normalizeColorToHex(brandText), brandMuted: normalizeColorToHex(brandMuted), phones: [whatsapp].filter(Boolean) }
+    // Persistir estabelecimento no backend para habilitar cardápio
+    try {
+      if (id?.trim()) {
+        fetch(`${apiBase}/api/establishment`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ id: id.trim(), name, city, uf }) }).catch(()=>{})
+      }
+    } catch {}
     setEstablishment(next)
     try {
       if (id?.trim()) {

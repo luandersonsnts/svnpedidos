@@ -136,6 +136,26 @@ CREATE TABLE IF NOT EXISTS product_history (
     res.json(row)
   })
 
+  // Upsert de estabelecimento (criar/atualizar mínimos para funcionar cardápio)
+  app.post('/api/establishment', async (req,res)=>{
+    try {
+      const { id, name, city, uf, support_contact } = req.body || {}
+      if (!id || String(id).trim().length===0) return res.status(400).json({ error:'missing_id' })
+      const now = nowIso()
+      const exists = await db.prepare('SELECT id FROM establishments WHERE id=?').get(id)
+      if (!exists) {
+        await db.prepare('INSERT INTO establishments (id,name,city,uf,status,billing_status,support_contact,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
+          .run(id, name||null, city||null, uf||null, 'active', 'paid', support_contact||null, now, now)
+      } else {
+        await db.prepare('UPDATE establishments SET name=?, city=?, uf=?, support_contact=?, updated_at=? WHERE id=?')
+          .run(name||null, city||null, uf||null, support_contact||null, now, id)
+      }
+      res.json({ ok:true })
+    } catch(e){
+      res.status(500).json({ error:'db_error', detail:String(e) })
+    }
+  })
+
 // Categories
   app.get('/api/categorias', async (req,res)=>{
     const { establishment_id } = req.query
