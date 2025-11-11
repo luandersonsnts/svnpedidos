@@ -5,16 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#52220c" />
     <title>Seu Estabelecimento</title>
-    <!-- Canonical and Open Graph (valores atualizados dinamicamente via script) -->
-    <link rel="canonical" href="/" />
+    <!-- Canonical e Open Graph serão atualizados dinamicamente via script -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Seu Estabelecimento" />
     <meta property="og:title" content="Seu Estabelecimento" />
-    <meta property="og:url" content="/" />
-    <meta property="og:image" content="/img/logo.png" />
+    <!-- og:url definido dinamicamente via script -->
+    <meta property="og:image" content="https://via.placeholder.com/512" />
     <!-- Icons (valor padrão; será atualizado dinamicamente) -->
-    <link rel="icon" href="/img/logo.png" type="image/png" />
-    <link rel="apple-touch-icon" href="/img/logo.png" />
+    <link rel="icon" href="https://via.placeholder.com/64" type="image/png" />
+    <link rel="apple-touch-icon" href="https://via.placeholder.com/64" />
     <!-- Preload hero and logo images (atualizado dinamicamente via script) -->
 
     <!-- Inicialização antecipada de tema (cores) a partir do localStorage -->
@@ -65,8 +64,8 @@
           if (ogTitle) ogTitle.setAttribute('content', (est.name || 'Seu Estabelecimento'));
           var ogSite = document.querySelector('meta[property="og:site_name"]');
           if (ogSite) ogSite.setAttribute('content', (est.name || 'Seu Estabelecimento'));
-          var iconHref = (est.avatarImage && String(est.avatarImage).trim()) ? est.avatarImage : '/img/logo.png';
-          var coverHref = (est.coverImage && String(est.coverImage).trim()) ? est.coverImage : iconHref;
+          var iconHref = (est.avatarImage && String(est.avatarImage).trim()) ? est.avatarImage : 'https://via.placeholder.com/64';
+          var coverHref = (est.coverImage && String(est.coverImage).trim()) ? est.coverImage : 'https://via.placeholder.com/1024x512';
           var linkIcon = document.querySelector('link[rel="icon"]');
           if (linkIcon) linkIcon.href = iconHref;
           var appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
@@ -74,10 +73,10 @@
           var ogImage = document.querySelector('meta[property="og:image"]');
           if (ogImage) ogImage.setAttribute('content', iconHref);
           // Preloads dinâmicos
-          if (iconHref && iconHref !== '/img/logo.png') {
+          if (iconHref && iconHref !== 'https://via.placeholder.com/64') {
             var plLogo = document.createElement('link'); plLogo.rel='preload'; plLogo.as='image'; plLogo.href=iconHref; document.head.appendChild(plLogo);
           }
-          if (coverHref && coverHref !== '/img/logo.png') {
+          if (coverHref && coverHref !== 'https://via.placeholder.com/1024x512') {
             var plCover = document.createElement('link'); plCover.rel='preload'; plCover.as='image'; plCover.href=coverHref; document.head.appendChild(plCover);
           }
         } catch(e) {}
@@ -121,6 +120,6 @@
   <body>
     <noscript aria-hidden="true">Você precisa habilitar o javascript para executar este aplicativo. Se não souber como fazer isso, entre em contato com o suporte.</noscript>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="./src/main.jsx"></script>
   </body>
 </html>
