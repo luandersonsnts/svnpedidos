@@ -2374,6 +2374,7 @@ function AdminLogin(){
   const navigate = useNavigate()
   const [estabId, setEstabId] = useState(localStorage.getItem('currentEstabId')||'')
   const [pass, setPass] = useState('')
+  const [error, setError] = useState('')
   const est = (()=>{ try{ return JSON.parse(localStorage.getItem('establishment')||'{}') } catch{ return {} } })()
   const expectedId = (est?.id) || 'default'
   const expectedPass = (est?.adminPassword) || (localStorage.getItem('adminAccessKey') || 'RVADMIN')
@@ -2381,9 +2382,12 @@ function AdminLogin(){
   const login = () => {
     if (!canLogin) return
     if (estabId.trim() === expectedId && pass.trim() === expectedPass){
+      setError('')
       localStorage.setItem('currentEstabId', estabId.trim())
       localStorage.setItem(`adminLogged_${estabId.trim()}`,'true')
       navigate('/admin/painel')
+    } else {
+      setError('ID do estabelecimento ou senha incorretos. Tente novamente.')
     }
   }
   return (
@@ -2401,6 +2405,9 @@ function AdminLogin(){
             <input type="password" placeholder="Sua senha" value={pass} onChange={(e)=> setPass(e.target.value)} />
           </div>
         </div>
+        {error && (
+          <div style={{color:'var(--error, #b00020)', marginTop:8}}>{error}</div>
+        )}
         <div style={{marginTop:8}}>
           <button className="btn" disabled={!canLogin} onClick={login}>Entrar</button>
         </div>
