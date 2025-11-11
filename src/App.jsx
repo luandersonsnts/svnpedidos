@@ -282,6 +282,7 @@ function Home() {
               loading="eager"
               fetchpriority="high"
               decoding="async"
+              crossOrigin="anonymous"
               onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.coverImage) || e.currentTarget.src }}
             />
             <div className="hero-gradient" />
@@ -296,6 +297,7 @@ function Home() {
               loading="eager"
               fetchpriority="high"
               decoding="async"
+              crossOrigin="anonymous"
               onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.avatarImage) || e.currentTarget.src }}
             />
           </div>
@@ -4274,14 +4276,19 @@ function EstablishmentInfoModal({ onClose }){
         {tab === 'sobre' && (
           <div>
             <div className="row" style={{alignItems:'center', gap:12}}>
-              <img className="estab-avatar" src={est.avatarImage || mockEstablishment.avatarImage} alt="Logo" loading="lazy" decoding="async" />
+              <img className="estab-avatar" src={est.avatarImage || mockEstablishment.avatarImage} alt="Logo" loading="lazy" decoding="async" crossOrigin="anonymous" onError={(e)=> { e.currentTarget.src = mockEstablishment.avatarImage }} />
               <div style={{display:'flex', alignItems:'center', gap:8}}>
-                {/* Logo do Instagram */}
-                <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h10a5 5 0 015 5v10a5 5 0 01-5 5H7a5 5 0 01-5-5V7a5 5 0 015-5zm5 5.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zm6.5-3a1 1 0 110 2 1 1 0 010-2z"></path></svg>
                 {instaHandle ? (
-                  <a className="insta-link" href={`https://instagram.com/${instaHandle}`} target="_blank" rel="noopener noreferrer" style={{fontWeight:600, textDecoration:'none'}}>{est.instagram}</a>
+                  <a className="insta-link" href={`https://instagram.com/${instaHandle}`} target="_blank" rel="noopener noreferrer" title={`Abrir Instagram ${est.instagram}`} style={{fontWeight:600, textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6}}>
+                    {/* Ícone Instagram dentro do link para garantir área clicável */}
+                    <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2c3.2 0 3.6 0 4.8.07 1.17.07 1.8.25 2.22.42.56.22.96.48 1.38.9.42.42.68.82.9 1.38.17.42.35 1.05.42 2.22.07 1.2.07 1.6.07 4.8s0 3.6-.07 4.8c-.07 1.17-.25 1.8-.42 2.22-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.17-1.05.35-2.22.42-1.2.07-1.6.07-4.8.07s-3.6 0-4.8-.07c-1.17-.07-1.8-.25-2.22-.42-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.17-.42-.35-1.05-.42-2.22C2.2 15.6 2.2 15.2 2.2 12s0-3.6.07-4.8c.07-1.17.25-1.8.42-2.22.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.17 1.05-.35 2.22-.42C8.4 2.2 8.8 2.2 12 2.2zm0 1.8c-3.14 0-3.51 0-4.75.07-.98.05-1.52.21-1.87.35-.47.18-.8.39-1.15.74-.35.35-.56.68-.74 1.15-.14.35-.3.89-.35 1.87-.07 1.24-.07 1.61-.07 4.75s0 3.51.07 4.75c.05.98.21 1.52.35 1.87.18.47.39.8.74 1.15.35.35.68.56 1.15.74.35.14.89.3 1.87.35 1.24.07 1.61.07 4.75.07s3.51 0 4.75-.07c.98-.05 1.52-.21 1.87-.35.47-.18.8-.39 1.15-.74.35-.35.56-.68.74-1.15.14-.35.3-.89.35-1.87.07-1.24.07-1.61.07-4.75s0-3.51-.07-4.75c-.05-.98-.21-1.52-.35-1.87-.18-.47-.39-.8-.74-1.15-.35-.35-.68-.56-1.15-.74-.35-.14-.89-.3-1.87-.35-1.24-.07-1.61-.07-4.75-.07zM12 6.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zm6-2a1 1 0 110 2 1 1 0 010-2z"></path></svg>
+                    <span>{est.instagram.startsWith('@')? est.instagram : `@${instaHandle}`}</span>
+                  </a>
                 ) : (
-                  <div style={{fontWeight:600}}>@instagram</div>
+                  <div style={{fontWeight:600, display:'inline-flex', alignItems:'center', gap:6}}>
+                    <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2c3.2 0 3.6 0 4.8.07 1.17.07 1.8.25 2.22.42.56.22.96.48 1.38.9.42.42.68.82.9 1.38.17.42.35 1.05.42 2.22.07 1.2.07 1.6.07 4.8s0 3.6-.07 4.8c-.07 1.17-.25 1.8-.42 2.22-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.17-1.05.35-2.22.42-1.2.07-1.6.07-4.8.07s-3.6 0-4.8-.07c-1.17-.07-1.8-.25-2.22-.42-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.17-.42-.35-1.05-.42-2.22C2.2 15.6 2.2 15.2 2.2 12s0-3.6.07-4.8c.07-1.17.25-1.8.42-2.22.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.17 1.05-.35 2.22-.42C8.4 2.2 8.8 2.2 12 2.2z"></path></svg>
+                    <span>@instagram</span>
+                  </div>
                 )}
               </div>
             </div>
@@ -4616,12 +4623,12 @@ function EstabConfig(){
         <div style={{fontWeight:700, marginBottom:8}}>Pré-visualização do site</div>
         <div className="hero" style={{marginTop:8}}>
           <div className="hero-bg">
-            <img className="estab-cover" src={coverImage || establishment?.coverImage || mockEstablishment.coverImage} alt="Capa do estabelecimento" loading="eager" fetchpriority="high" decoding="async" />
+            <img className="estab-cover" src={coverImage || establishment?.coverImage || mockEstablishment.coverImage} alt="Capa do estabelecimento" loading="eager" fetchpriority="high" decoding="async" crossOrigin="anonymous" onError={(e)=> { e.currentTarget.src = mockEstablishment.coverImage }} />
             <div className="hero-gradient" />
           </div>
           <div className="hero-content mobile">
             <div className="avatar-card">
-              <img className="avatar-img" src={avatarImage || establishment?.avatarImage || mockEstablishment.avatarImage} alt="Logo" loading="eager" fetchpriority="high" decoding="async" />
+              <img className="avatar-img" src={avatarImage || establishment?.avatarImage || mockEstablishment.avatarImage} alt="Logo" loading="eager" fetchpriority="high" decoding="async" crossOrigin="anonymous" onError={(e)=> { e.currentTarget.src = mockEstablishment.avatarImage }} />
             </div>
             <h1 className="hero-title" style={{marginTop:8}}>{name || establishment?.name || mockEstablishment.name}</h1>
             <div className="hero-info" style={{marginTop:6}}>
