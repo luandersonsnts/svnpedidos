@@ -166,6 +166,12 @@ function Home() {
       window.removeEventListener('triggerCepModal', open)
     }
   }, [])
+  // Refresh imediato do cardápio quando Admin alterar itens/categorias
+  useEffect(() => {
+    const onRefresh = () => setRefreshTick(t => t + 1)
+    window.addEventListener('refreshMenu', onRefresh)
+    return () => window.removeEventListener('refreshMenu', onRefresh)
+  }, [])
   useEffect(()=>{
     const load = async ()=>{
       try {
@@ -3374,7 +3380,36 @@ function AdminItems(){
       const maxBytes = 5 * 1024 * 1024
       if (file.size > maxBytes) { setNewImageError('Imagem acima de 5MB. Escolha um arquivo menor.'); setNewImageData(''); return }
       const reader = new FileReader()
-      reader.onload = () => { setNewImageData(String(reader.result||'')); setNewImageError('') }
+      reader.onload = () => {
+        try {
+          const src = String(reader.result||'')
+          const img = new Image()
+          img.onload = () => {
+            try {
+              const TW = 800, TH = 600
+              const canvas = document.createElement('canvas')
+              canvas.width = TW; canvas.height = TH
+              const ctx = canvas.getContext('2d')
+              const sw = img.width, sh = img.height
+              const scale = Math.max(TW / sw, TH / sh)
+              const sWidth = Math.floor(TW / scale)
+              const sHeight = Math.floor(TH / scale)
+              const sx = Math.max(0, Math.floor((sw - sWidth) / 2))
+              const sy = Math.max(0, Math.floor((sh - sHeight) / 2))
+              ctx.imageSmoothingQuality = 'high'
+              ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, TW, TH)
+              const out = canvas.toDataURL('image/webp', 0.92)
+              setNewImageData(out); setNewImageError('')
+            } catch {
+              setNewImageData(src); setNewImageError('')
+            }
+          }
+          img.onerror = () => { setNewImageError('Falha ao carregar imagem.'); setNewImageData('') }
+          img.src = src
+        } catch {
+          setNewImageData(String(reader.result||'')); setNewImageError('')
+        }
+      }
       reader.onerror = () => { setNewImageError('Falha ao ler o arquivo.'); setNewImageData('') }
       reader.readAsDataURL(file)
     } catch(e){ setNewImageError('Erro ao processar imagem.'); setNewImageData('') }
@@ -3433,7 +3468,36 @@ function AdminItems(){
       const maxBytes = 5 * 1024 * 1024
       if (file.size > maxBytes) { setEditImageError('Imagem acima de 5MB. Escolha um arquivo menor.'); return }
       const reader = new FileReader()
-      reader.onload = () => { setDraftProduct(prev=> ({ ...(prev||{}), image: String(reader.result||'') })); setEditImageError('') }
+      reader.onload = () => {
+        try {
+          const src = String(reader.result||'')
+          const img = new Image()
+          img.onload = () => {
+            try {
+              const TW = 800, TH = 600
+              const canvas = document.createElement('canvas')
+              canvas.width = TW; canvas.height = TH
+              const ctx = canvas.getContext('2d')
+              const sw = img.width, sh = img.height
+              const scale = Math.max(TW / sw, TH / sh)
+              const sWidth = Math.floor(TW / scale)
+              const sHeight = Math.floor(TH / scale)
+              const sx = Math.max(0, Math.floor((sw - sWidth) / 2))
+              const sy = Math.max(0, Math.floor((sh - sHeight) / 2))
+              ctx.imageSmoothingQuality = 'high'
+              ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, TW, TH)
+              const out = canvas.toDataURL('image/webp', 0.92)
+              setDraftProduct(prev=> ({ ...(prev||{}), image: out })); setEditImageError('')
+            } catch {
+              setDraftProduct(prev=> ({ ...(prev||{}), image: src })); setEditImageError('')
+            }
+          }
+          img.onerror = () => { setEditImageError('Falha ao carregar imagem.') }
+          img.src = src
+        } catch {
+          setDraftProduct(prev=> ({ ...(prev||{}), image: String(reader.result||'') })); setEditImageError('')
+        }
+      }
       reader.onerror = () => { setEditImageError('Falha ao ler o arquivo.') }
       reader.readAsDataURL(file)
     } catch(e){ setEditImageError('Erro ao processar imagem.') }
@@ -3533,6 +3597,7 @@ function AdminItems(){
             sku: x.sku || undefined, promoActive: !!x.promo_active, promoPrice: x.promo_price!=null? Number(x.promo_price): undefined,
           }))
           setProducts(prodsUi)
+          try { window.dispatchEvent(new Event('refreshMenu')) } catch(e) {}
         })
       })
       .catch(()=>{})
@@ -3551,6 +3616,7 @@ function AdminItems(){
           sku: x.sku || undefined, promoActive: !!x.promo_active, promoPrice: x.promo_price!=null? Number(x.promo_price): undefined,
         }))
         setProducts(prodsUi)
+        try { window.dispatchEvent(new Event('refreshMenu')) } catch(e) {}
       }))
   }
   const updateProduct = (id, fields) => {
@@ -3582,6 +3648,7 @@ function AdminItems(){
           sku: x.sku || undefined, promoActive: !!x.promo_active, promoPrice: x.promo_price!=null? Number(x.promo_price): undefined,
         }))
         setProducts(prodsUi)
+        try { window.dispatchEvent(new Event('refreshMenu')) } catch(e) {}
       }))
   }
   const toggleAvailable = (id) => {
@@ -3619,6 +3686,7 @@ function AdminItems(){
       .then(()=> fetch(`${apiBase}/api/categorias?establishment_id=${eid}`).then(r=> r.json()).then(c=>{
         const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         setCats(catsUi)
+        try { window.dispatchEvent(new Event('refreshMenu')) } catch(e) {}
       }))
     setNewCatName(''); setNewCatImage('')
   }
@@ -3628,6 +3696,7 @@ function AdminItems(){
       .then(()=> fetch(`${apiBase}/api/categorias?establishment_id=${eid}`).then(r=> r.json()).then(c=>{
     const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         setCats(catsUi)
+        try { window.dispatchEvent(new Event('refreshMenu')) } catch(e) {}
       }))
   }
   return (
@@ -3729,6 +3798,10 @@ function AdminItems(){
                         <label className="muted" htmlFor={`edit-product-image-${p.id}`}>Imagem (JPG/PNG/WebP)</label>
                         <input id={`edit-product-image-${p.id}`} name="editProductImage" aria-label="Imagem do produto (edição)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleEditProductImageChange} />
                         {editImageError && <div className="muted" style={{color:'#b91c1c'}}>{editImageError}</div>}
+                        <div className="muted" style={{marginTop:6}}>Prévia 800×600 (WebP)</div>
+                        <div style={{marginTop:6}}>
+                          <img alt="Prévia do produto" src={(draftProduct?.image||p.image||DEFAULT_PRODUCT_PLACEHOLDER)} onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} style={{width:160, height:120, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
+                        </div>
                       </div>
                     </div>
                     <div className="row" style={{gap:8}}>
@@ -3813,6 +3886,10 @@ function AdminItems(){
               <label className="muted" htmlFor="new-product-image">Imagem (JPG/PNG/WebP) • Máx 5MB</label>
               <input id="new-product-image" name="newProductImage" aria-label="Imagem do produto (novo)" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleNewImageChange} />
               {newImageError && <div className="muted" style={{color:'#b91c1c'}}>{newImageError}</div>}
+              <div className="muted" style={{marginTop:6}}>Prévia 800×600 (WebP)</div>
+              <div style={{marginTop:6}}>
+                <img alt="Prévia do novo produto" src={newImageData || DEFAULT_PRODUCT_PLACEHOLDER} onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} style={{width:160, height:120, objectFit:'cover', border:'1px solid #eee', borderRadius:6}} />
+              </div>
             </div>
           </div>
           <div className="row" style={{gap:12, marginTop:8}}>
