@@ -12,6 +12,7 @@
     "start": "node server/index.js",
     "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
     "build": "vite build",
+    "heroku-build": "node scripts/heroku-build.mjs",
     "preview": "vite preview",
     "start:frontend": "serve -s dist -l $PORT"
   },
