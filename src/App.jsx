@@ -922,7 +922,16 @@ function Sacola(){
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
   const discount = coupon ? (coupon.type==='percent' ? subtotal * (coupon.value/100) : coupon.value) : 0
   const deliveryFee = auth?.address ? (auth.address.fee ?? null) : null
-  const total = subtotal - discount
+  const total = subtotal - discount + (deliveryFee || 0)
+
+  const computeEta = (addr) => {
+    const km = addr?.distanceKm ?? null
+    if (km == null) return '1h'
+    if (km <= 2) return '30min'
+    if (km <= 5) return '45min'
+    if (km <= 8) return '1h'
+    return '1h 15min'
+  }
 
   const removeItem = (id) => setCart(prev => prev.filter(i => i.id !== id))
   const startEdit = (item) => { setEditingId(item.id); setTempQty(item.qty); setTempObs(item.obs || '') }
@@ -955,6 +964,20 @@ function Sacola(){
             <Button variant="outline" onClick={()=> setCart([])}>Esvaziar Carrinho</Button>
           )}
         </div>
+        {/* Cabeçalho de endereço/entrega quando houver endereço salvo */}
+        {auth?.address && (
+          <div className="section-card" style={{marginTop:8}}>
+            <div style={{display:'flex', alignItems:'center', gap:8, justifyContent:'space-between'}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontWeight:700, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>
+                  {auth.address.label ?? `${auth.address.street || ''}${auth.address.number ? ', ' + auth.address.number : ''}${auth.address.neighborhood ? ' - ' + auth.address.neighborhood : ''}${(auth.address.city || auth.address.uf) ? ` • ${[auth.address.city, auth.address.uf].filter(Boolean).join('/')}` : ''}`}
+                </div>
+                <div className="muted" style={{marginTop:4}}>Entrega em {computeEta(auth.address)} / {deliveryFee!=null? `R$ ${deliveryFee.toFixed(2)}` : '—'}</div>
+              </div>
+              <Button variant="outline" size="sm" onClick={()=> setShowDeliveryModal(true)} aria-label="Definir endereço">›</Button>
+            </div>
+          </div>
+        )}
         {cart.length===0 ? (
             <div className="empty">Sua sacola está vazia. <Button variant="secondary" size="lg" block onClick={()=> navigate('/')}>Adicionar mais itens</Button></div>
         ) : (
@@ -994,7 +1017,7 @@ function Sacola(){
             ))}
 
             <div className="row" style={{marginTop:8}}>
-              <button className="btn secondary btn-lg btn-block" onClick={()=> navigate('/')}>Adicionar mais itens</button>
+              <Button variant="secondary" size="lg" block onClick={()=> navigate('/')}>Adicionar mais itens</Button>
             </div>
 
             <div style={{marginTop:16}}>
@@ -1012,8 +1035,12 @@ function Sacola(){
 
             <div className="price-box">
               <div className="price-row"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
+              <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${deliveryFee.toFixed(2)}` : '—'}</span></div>
               <div className="price-row total"><span>TOTAL</span><span>R$ {total.toFixed(2)}</span></div>
             </div>
+
+            {/* Banner indicando existência de cupom */}
+            <div className="success-banner">Cupom disponível, veja as regras de aplicação</div>
 
             <Button className="cta-blink" onClick={()=> setShowCoupons(true)}>Que tal usar um cupom?</Button>
             {showCoupons && <CouponsModal onClose={()=> setShowCoupons(false)} />}
@@ -1116,8 +1143,8 @@ function DeliveryOptionsModal({ onClose, onSelected }){
               onClose();
               navigate('/entrega', { state: { option: selected } })
             }
-          }}>Continuar</button>
-          <button className="btn secondary btn-lg" onClick={onClose}>Cancelar</button>
+          }}>Continuar</Button>
+          <Button variant="secondary" size="lg" onClick={onClose}>Cancelar</Button>
         </div>
       </div>
     </div>
@@ -2000,7 +2027,7 @@ function Orders(){
                 Notification.requestPermission().then(res => { localStorage.setItem(`notifConsent_${eid}`, res||'default'); setShowNotif(false) })
               } else { localStorage.setItem(`notifConsent_${eid}`, 'granted'); setShowNotif(false) }
             } catch(e){ setShowNotif(false) }
-          }}>ATIVAR</button>
+          }}>ATIVAR</Button>
         </div>
       </div>
       {!auth?.loggedIn && (
