@@ -119,6 +119,8 @@ let libsqlClient
 let sqliteConnection
 let postgresPool
 
+const SUPPORTED_PROVIDERS = new Set(['auto', 'libsql', 'postgres', 'sqlite'])
+
 const splitStatements = (sql) => String(sql)
   .split(';')
   .map((statement) => statement.trim())
@@ -322,6 +324,9 @@ const createPostgresDb = (config) => {
 
 const resolveProvider = (config) => {
   const provider = config.database.provider
+  if (!SUPPORTED_PROVIDERS.has(provider)) {
+    throw new Error(`DB_PROVIDER invalido: "${provider}". Use auto, libsql, postgres ou sqlite.`)
+  }
   if (provider !== 'auto') return provider
 
   if (config.database.libsqlUrl || config.database.libsqlToken) return 'libsql'
