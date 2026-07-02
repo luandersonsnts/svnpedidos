@@ -2,6 +2,25 @@ import React, { useState, useContext, createContext, useEffect, useMemo, useRef 
 import { Routes, Route, Link, useNavigate, useLocation, useParams } from 'react-router-dom'
 import Button from './ui/Button'
 import { API_BASE, DEFAULT_ADMIN_PASSWORD, DEFAULT_WHATSAPP_NUMBER } from './config'
+import {
+  ORDER_STATUSES,
+  ORDER_STATUS_LABELS,
+  clearCheckoutDraft,
+  createClientOrderId,
+  fetchOrderById as fetchOrderByIdApi,
+  fetchOrders as fetchOrdersApi,
+  getCachedOrders,
+  getCheckoutDraft,
+  getLastConfirmedOrder,
+  mergeOrderIntoCache,
+  removePendingOrder,
+  setCachedOrders,
+  setCheckoutDraft,
+  submitOrder,
+  syncPendingOrders,
+  updateOrderStatus as updateOrderStatusApi,
+  upsertPendingOrder,
+} from './orders'
 
 // Contexto simples para cupom aplicado
 const CouponContext = createContext({ coupon: null, setCoupon: () => {} })
@@ -129,6 +148,53 @@ const mockProducts = [
   { id:'bv-m', name:'Bolos M Vulcão', basePrice: 0.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_vulcao', available:true, descShort:'Tamanho médio', stockQty: 10, autoStockControl:true, optionsGroup:{ id:'tamanho', name:'Tamanho', required:true, min:1, max:1, options:[{ id:'m', name:'M', priceDelta:0 }] } },
   { id:'bv-g', name:'Bolos G Vulcão', basePrice: 0.00, image: DEFAULT_PRODUCT_PLACEHOLDER, category:'bolos_vulcao', available:true, descShort:'Tamanho grande', stockQty: 10, autoStockControl:true, optionsGroup:{ id:'tamanho', name:'Tamanho', required:true, min:1, max:1, options:[{ id:'g', name:'G', priceDelta:0 }] } },
 ]
+
+const parseOrderDate = (value) => {
+  if (!value) return new Date(0)
+  const direct = new Date(value)
+  if (!Number.isNaN(direct.getTime())) return direct
+  try {
+    const [datePart, timePart] = String(value).split(' ')
+    const [d, m, y] = String(datePart || '').split('/').map((item) => parseInt(item, 10))
+    const [hh, mm] = String(timePart || '00:00').split(':').map((item) => parseInt(item, 10))
+    const parsed = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0)
+    return Number.isNaN(parsed.getTime()) ? new Date(0) : parsed
+  } catch {
+    return new Date(0)
+  }
+}
+
+const formatOrderDate = (value) => {
+  const parsed = parseOrderDate(value)
+  return parsed.getTime() ? parsed.toLocaleString('pt-BR') : '—'
+}
+
+const getOrderStatusLabel = (status) => ORDER_STATUS_LABELS[status] || status || 'Recebido'
+
+const getOrderBadgeClass = (status) => {
+  if (status === ORDER_STATUSES.RECEBIDO) return 'yellow'
+  if (status === ORDER_STATUSES.EM_PREPARO) return 'orange'
+  if (status === ORDER_STATUSES.PRONTO) return 'blue'
+  if (status === ORDER_STATUSES.ENTREGUE || status === ORDER_STATUSES.FINALIZADO) return 'green'
+  if (status === ORDER_STATUSES.CANCELADO) return 'red'
+  return ''
+}
+
+const getOrderTimelineStatuses = (order) => (
+  order?.fulfillmentType === 'pickup'
+    ? [ORDER_STATUSES.RECEBIDO, ORDER_STATUSES.EM_PREPARO, ORDER_STATUSES.PRONTO, ORDER_STATUSES.FINALIZADO]
+    : [ORDER_STATUSES.RECEBIDO, ORDER_STATUSES.EM_PREPARO, ORDER_STATUSES.PRONTO, ORDER_STATUSES.ENTREGUE]
+)
+
+const getOrderStatusIcon = (status) => {
+  if (status === ORDER_STATUSES.RECEBIDO) return '⏳'
+  if (status === ORDER_STATUSES.EM_PREPARO) return '🍰'
+  if (status === ORDER_STATUSES.PRONTO) return '📦'
+  if (status === ORDER_STATUSES.ENTREGUE) return '🛵'
+  if (status === ORDER_STATUSES.FINALIZADO) return '🎉'
+  if (status === ORDER_STATUSES.CANCELADO) return '❌'
+  return '•'
+}
 
 function Home() {
   const [showInfo, setShowInfo] = useState(false)
@@ -1781,6 +1847,8 @@ function Checkout(){
   const [showChangeAmount, setShowChangeAmount] = useState(false)
   const [changeAmount, setChangeAmount] = useState('')
   const [orderNotes, setOrderNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   const parseAmount = (str) => {
     const digits = (str || '').replace(/\D/g,'')
@@ -1811,48 +1879,64 @@ function Checkout(){
     }
   }
 
-  const continueCheckout = () => {
+  const continueCheckout = async () => {
     if (stage === 'pagamento') {
       setStage('confirmacao')
     } else {
-      const order = {
-        id: `${Date.now()}`,
-        phone: auth?.phone || 'anon',
-        name: auth?.name || '',
-        items: cart.map(i=> ({ id:i.id, productId:i.productId, name:i.name, qty:i.qty, unitPrice:i.unitPrice, choice: i.choice || null, obs: i.obs || '' })),
-        subtotal,
+      const eid = (establishment?.id) || getCurrentEstabId() || 'default'
+      const existingDraft = getCheckoutDraft(eid)
+      const clientOrderId = existingDraft?.client_order_id || createClientOrderId()
+      const hasAddress = !!(auth?.address && (auth.address.street || auth.address.number || auth.address.city))
+      const payload = {
+        client_order_id: clientOrderId,
+        establishment_id: eid,
+        customer: {
+          name: auth?.name || 'Cliente',
+          phone: auth?.phone || '',
+        },
+        fulfillment_type: hasAddress ? 'delivery' : 'pickup',
+        address: hasAddress ? { ...auth.address, fee } : null,
+        payment_method: paymentMethod,
+        change_for_amount: paymentMethod === 'Dinheiro' && canConfirmChange ? changeValue : null,
+        notes: orderNotes || '',
         discount,
-        coupon: (coupon ? { id: coupon.id, label: coupon.label, type: coupon.type, value: coupon.value } : null),
         fee,
         total,
-        paymentMethod,
-        notes: orderNotes || '',
-        createdAt: new Date().toLocaleString('pt-BR'),
-        status: 'Aguardando confirmação',
-        address: auth?.address || {},
-        history: [{ status: 'Aguardando confirmação', at: new Date().toLocaleString('pt-BR') }]
+        coupon: (coupon ? { id: coupon.id, label: coupon.label, type: coupon.type, value: coupon.value } : null),
+        items: cart.map(i => ({
+          id: i.id,
+          product_id: i.productId,
+          name: i.name,
+          qty: i.qty,
+          unit_price: i.unitPrice,
+          choice: i.choice || null,
+          obs: i.obs || '',
+        })),
       }
+
+      setSubmitting(true)
+      setSubmitError('')
+      setCheckoutDraft(eid, payload)
+      upsertPendingOrder(eid, payload)
+
       try {
-        const eid = (establishment?.id) || 'tita'
-        const key = `orders_${eid}`
-        const prev = JSON.parse(localStorage.getItem(key) || '[]')
-        prev.push(order)
-        localStorage.setItem(key, JSON.stringify(prev))
-        // Atualiza estoque automaticamente para produtos com controle ativo
-        const src = getProductsLS() || mockProducts
-        const next = (src || []).map(p => {
-          const usedQty = cart.filter(i => i.productId === p.id).reduce((s, i) => s + (i.qty || 0), 0)
-          if (p.autoStockControl) {
-            const newQty = Math.max(0, (p.stockQty || 0) - usedQty)
-            return { ...p, stockQty: newQty }
-          }
-          return p
+        const result = await submitOrder(payload)
+        mergeOrderIntoCache(eid, result.order)
+        removePendingOrder(eid, clientOrderId)
+        clearCheckoutDraft(eid)
+        setCart([])
+        navigate('/sucesso')
+      } catch (error) {
+        const message = error?.body?.message || 'Nao foi possivel confirmar o pedido. Tente novamente.'
+        setSubmitError(message)
+        showToast({
+          titulo: 'Pedido nao confirmado',
+          mensagem: message,
+          tipo: 'warning',
         })
-        setProductsLS(next)
-      } catch(e) {}
-      // Limpa a sacola após confirmar o pedido
-      try { setCart([]) } catch(e) {}
-      navigate('/sucesso')
+      } finally {
+        setSubmitting(false)
+      }
     }
   }
 
@@ -1972,13 +2056,21 @@ function Checkout(){
           <textarea rows={3} placeholder="Ex: sem açúcar, deixar na portaria, ligar ao chegar" value={orderNotes} onChange={(e)=> setOrderNotes(e.target.value)} />
         </div>
       </div>
+      {submitError && (
+        <div className="section-card" style={{border:'1px solid rgba(177, 90, 90, 0.35)', background:'#fff8f8'}}>
+          <div style={{fontWeight:700, color:'#8b1e1e'}}>Nao foi possivel confirmar o pedido</div>
+          <div className="muted" style={{marginTop:6}}>{submitError}</div>
+        </div>
+      )}
         </>
       )}
 
       <div className="muted" style={{textAlign:'center', marginTop:12}}>PAGAR COM DUAS FORMAS DE PAGAMENTO</div>
 
       <div style={{position:'fixed', left:0, right:0, bottom:68, padding:'0 16px'}}>
-            <Button size="lg" block onClick={continueCheckout}>{stage==='pagamento' ? 'Continuar' : 'Enviar pedido'}</Button>
+            <Button size="lg" block disabled={submitting} onClick={continueCheckout}>
+              {stage==='pagamento' ? 'Continuar' : (submitting ? 'Confirmando pedido...' : 'Enviar pedido')}
+            </Button>
         <div className="row" style={{justifyContent:'space-between', marginTop:8}}>
           <div className="muted">Subtotal</div>
           <div>R$ {subtotal.toFixed(2)}</div>
@@ -2115,33 +2207,27 @@ function Orders(){
   })
   const prevStatusRef = useRef({})
   useEffect(()=>{
-    const id = setInterval(()=> {
-      const list = getOrdersLS()
-      setOrders(list)
+    let active = true
+    const load = async () => {
       try {
-        const myPhone = auth?.phone
-        const mine = (list||[]).filter(o=> o.phone === myPhone)
-        mine.forEach(o => {
-          const prev = prevStatusRef.current[o.id]
-          if (prev && prev !== o.status){
-            notificarCliente(o, o.status)
+        const list = await refreshOrdersFromApi({ establishmentId: eid, phone: auth?.phone })
+        if (!active) return
+        setOrders(list)
+        const mine = (list || []).filter(o => o.phone === auth?.phone)
+        mine.forEach((order) => {
+          const prev = prevStatusRef.current[order.id]
+          if (prev && prev !== order.status) {
+            notificarCliente(order, getOrderStatusLabel(order.status))
           }
         })
-        prevStatusRef.current = Object.fromEntries(mine.map(o=> [o.id, o.status]))
-      } catch(e) {}
-    }, 10000)
-    return ()=> clearInterval(id)
+        prevStatusRef.current = Object.fromEntries(mine.map((order) => [order.id, order.status]))
+      } catch {}
+    }
+    load()
+    const id = setInterval(load, 10000)
+    return ()=> { active = false; clearInterval(id) }
   }, [auth?.phone, eid])
   const filtered = auth?.loggedIn ? orders.filter(o => o.phone === auth.phone) : []
-  const pillClass = (st) => {
-    if (st==='Aguardando confirmação') return 'yellow'
-    if (st==='Confirmado') return 'green'
-    if (st==='Em preparo') return 'orange'
-    if (st==='Saiu para entrega') return 'blue'
-    if (st==='Entregue') return 'green'
-    if (st==='Cancelado') return 'red'
-    return ''
-  }
   return (
     <div className="container">
       <div className="banner" style={{display: showNotif? 'flex':'none'}}>
@@ -2179,8 +2265,8 @@ function Orders(){
           <div className="row">
             <div>
               <div style={{fontWeight:700}}>Pedido N° {o.id}</div>
-              <div className="muted">Feito em {o.createdAt}</div>
-              <div className="muted">Tipo: Delivery</div>
+              <div className="muted">Feito em {formatOrderDate(o.createdAt)}</div>
+              <div className="muted">Tipo: {o.fulfillmentType === 'pickup' ? 'Retirada' : 'Delivery'}</div>
             </div>
             <div style={{textAlign:'right'}}>
               <div style={{fontWeight:700}}>Total: R$ {o.total.toFixed(2)}</div>
@@ -2188,7 +2274,7 @@ function Orders(){
             </div>
           </div>
           <div style={{marginTop:8}}>
-            <span className={`pill ${pillClass(o.status)}`} /> <span className="muted">{o.status}</span>
+            <span className={`pill ${getOrderBadgeClass(o.status)}`} /> <span className="muted">{getOrderStatusLabel(o.status)}</span>
           </div>
         </div>
       ))}
@@ -2212,33 +2298,33 @@ function OrderDetails(){
   const { id } = useParams()
   const navigate = useNavigate()
   const { auth } = useContext(AuthContext)
+  const eid = getCurrentEstabId()
   const [order, setOrder] = useState(() => {
     try { const list = getOrdersLS(); return list.find(o => String(o.id) === String(id)) || null } catch { return null }
   })
-  useEffect(()=>{ const t = setInterval(()=> { const list = getOrdersLS(); setOrder(list.find(o => String(o.id) === String(id)) || null) }, 10000); return ()=> clearInterval(t) }, [id])
+  useEffect(()=>{
+    let active = true
+    const load = async () => {
+      try {
+        const next = await refreshOrderFromApi({ establishmentId: eid, orderId: id })
+        if (active) setOrder(next)
+      } catch {
+        if (active) {
+          const list = getOrdersLS()
+          setOrder(list.find(o => String(o.id) === String(id)) || null)
+        }
+      }
+    }
+    load()
+    const t = setInterval(load, 10000)
+    return ()=> { active = false; clearInterval(t) }
+  }, [eid, id])
   const items = order?.items || []
   const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
   const fee = order?.fee ?? null
   const total = order?.total ?? (subtotal + (fee ?? 0))
-  const statuses = ['Aguardando confirmação','Confirmado','Em preparo','Saiu para entrega','Entregue']
-  const currentIdx = Math.max(0, statuses.indexOf(order?.status || 'Aguardando confirmação'))
-  const iconFor = (label) => {
-    if (label==='Aguardando confirmação') return '⏳'
-    if (label==='Confirmado') return '✅'
-    if (label==='Em preparo') return '🍰'
-    if (label==='Saiu para entrega') return '🛵'
-    if (label==='Entregue') return '🎉'
-    return '•'
-  }
-  const pillClass = (st) => {
-    if (st==='Aguardando confirmação') return 'yellow'
-    if (st==='Confirmado') return 'green'
-    if (st==='Em preparo') return 'orange'
-    if (st==='Saiu para entrega') return 'blue'
-    if (st==='Entregue') return 'green'
-    if (st==='Cancelado') return 'red'
-    return ''
-  }
+  const statuses = getOrderTimelineStatuses(order)
+  const currentIdx = Math.max(0, statuses.indexOf(order?.status || ORDER_STATUSES.RECEBIDO))
   const handleContactEstabelecimento = () => {
     try {
       const eid = getCurrentEstabId()
@@ -2255,7 +2341,7 @@ function OrderDetails(){
         return
       }
       const nome = auth?.name || 'Cliente'
-      const dataHora = order?.createdAt || new Date().toLocaleString('pt-BR')
+      const dataHora = formatOrderDate(order?.createdAt)
       const mensagem = `Olá, meu nome é ${nome} e gostaria de saber informações sobre o meu pedido de número ${id} feito ${dataHora}`
       const url = `https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}`
       window.open(url, '_blank')
@@ -2271,11 +2357,11 @@ function OrderDetails(){
         <div className="row" style={{justifyContent:'space-between'}}>
           <div>
             <div style={{fontWeight:700}}>Pedido # {id}</div>
-            <div className="muted">Feito em {order?.createdAt || '—'}</div>
+            <div className="muted">Feito em {formatOrderDate(order?.createdAt)}</div>
           </div>
           <div style={{textAlign:'right'}}>
             <div style={{fontWeight:700}}>Total: R$ {total.toFixed(2)}</div>
-            <div><span className={`pill ${pillClass(order?.status)}`} /> <span style={{fontWeight:600}}>{order?.status || 'Aguardando confirmação'}</span></div>
+            <div><span className={`pill ${getOrderBadgeClass(order?.status)}`} /> <span style={{fontWeight:600}}>{getOrderStatusLabel(order?.status)}</span></div>
           </div>
         </div>
       </div>
@@ -2283,18 +2369,18 @@ function OrderDetails(){
       <div className="timeline">
         {statuses.map((st, idx) => (
           <div key={st} className={`item ${idx<=currentIdx? 'active':''}`}>
-            <div className="icon">{iconFor(st)}</div>
+            <div className="icon">{getOrderStatusIcon(st)}</div>
             <div>
-              <div className="title">{st}</div>
+              <div className="title">{getOrderStatusLabel(st)}</div>
               <div className="muted">{idx<=currentIdx? 'Atual': 'Pendente'}</div>
             </div>
           </div>
         ))}
-        {order?.status==='Cancelado' && (
+        {order?.status===ORDER_STATUSES.CANCELADO && (
           <div className="item active">
             <div className="icon">❌</div>
             <div>
-              <div className="title">Cancelado</div>
+              <div className="title">{getOrderStatusLabel(ORDER_STATUSES.CANCELADO)}</div>
               <div className="muted">Atual</div>
             </div>
           </div>
@@ -2329,12 +2415,12 @@ function OrderDetails(){
 
       <div className="section-card">
         <div style={{fontWeight:700, marginBottom:8}}>Informações para entrega</div>
-        <div>{auth?.name || 'Cliente'}</div>
-        <div className="muted">{auth?.phone || '(00) 00000-0000'}</div>
-        {auth?.address && (
+        <div>{order?.name || auth?.name || 'Cliente'}</div>
+        <div className="muted">{order?.phone || auth?.phone || '(00) 00000-0000'}</div>
+        {order?.address && (
           <>
-            <div style={{marginTop:8}}>{auth.address.street}, {auth.address.number}</div>
-            <div className="muted">{auth.address.neighborhood}, {auth.address.city} • {auth.address.complement} • {auth.address.reference}</div>
+            <div style={{marginTop:8}}>{order.address.street}, {order.address.number}</div>
+            <div className="muted">{order.address.neighborhood}, {order.address.city} • {order.address.complement} • {order.address.reference}</div>
           </>
         )}
       </div>
@@ -2355,22 +2441,35 @@ function getCurrentEstabId(){
 }
 function getOrdersLS(){
   const eid = getCurrentEstabId()
-  try { return JSON.parse(localStorage.getItem(`orders_${eid}`) || '[]') } catch(e){ return [] }
+  return getCachedOrders(eid)
 }
 function setOrdersLS(list){
   const eid = getCurrentEstabId()
-  try { localStorage.setItem(`orders_${eid}`, JSON.stringify(list||[])) } catch(e){}
+  setCachedOrders(eid, list || [])
 }
-function updateOrderStatus(id, status){
-  const list = getOrdersLS()
-  const idx = list.findIndex(o=> String(o.id) === String(id))
-  if (idx>=0){
-    const now = new Date().toLocaleString('pt-BR')
-    const prevHist = Array.isArray(list[idx].history) ? list[idx].history : []
-    list[idx].status = status
-    list[idx].history = [...prevHist, { status, at: now }]
-    setOrdersLS(list)
-  }
+
+async function refreshOrdersFromApi({ establishmentId, phone }){
+  const orders = await fetchOrdersApi({ establishmentId, phone })
+  setCachedOrders(establishmentId, orders)
+  return orders
+}
+
+async function refreshOrderFromApi({ establishmentId, orderId }){
+  const order = await fetchOrderByIdApi({ establishmentId, orderId })
+  if (order) mergeOrderIntoCache(establishmentId, order)
+  return order
+}
+
+async function updateOrderStatus(id, status){
+  const eid = getCurrentEstabId()
+  const order = await updateOrderStatusApi({
+    establishmentId: eid,
+    orderId: id,
+    status,
+    changedBy: 'admin',
+  })
+  mergeOrderIntoCache(eid, order)
+  return order
 }
 
 function normalizePhone(raw){
@@ -2432,8 +2531,8 @@ function printComanda(order){
     const cidadeUf = [addr.city, addr.uf].filter(Boolean).join(' • ') || ''
     const complemento = addr.complement || ''
     const referencia = addr.reference || ''
-    const criadoEm = order?.createdAt || new Date().toLocaleString('pt-BR')
-    const status = order?.status || 'Aguardando confirmação'
+    const criadoEm = formatOrderDate(order?.createdAt)
+    const status = getOrderStatusLabel(order?.status)
     const html = `<!doctype html>
 <html>
   <head>
@@ -2629,30 +2728,32 @@ function AdminOrders(){
   const [search, setSearch] = useState('')
   const [showDetails, setShowDetails] = useState(null)
   const prevIdsRef = useRef({})
-  const statuses = ['Aguardando confirmação','Confirmado','Em preparo','Saiu para entrega','Entregue','Cancelado']
-  const setStatus = (id, st) => {
-    updateOrderStatus(id, st)
-    const updated = getOrdersLS()
-    setOrders(updated)
-    try { localStorage.setItem(`order_seen_${eid}_${id}`,'true') } catch(e) {}
-  }
-  const badgeClass = (st) => {
-    if (st==='Aguardando confirmação') return 'yellow'
-    if (st==='Confirmado') return 'green'
-    if (st==='Em preparo') return 'orange'
-    if (st==='Saiu para entrega') return 'blue'
-    if (st==='Entregue') return 'green'
-    if (st==='Cancelado') return 'red'
-    return ''
+  const statuses = [ORDER_STATUSES.RECEBIDO, ORDER_STATUSES.EM_PREPARO, ORDER_STATUSES.PRONTO, ORDER_STATUSES.ENTREGUE, ORDER_STATUSES.FINALIZADO, ORDER_STATUSES.CANCELADO]
+  const setStatus = async (id, st) => {
+    try {
+      const updatedOrder = await updateOrderStatus(id, st)
+      const updated = [updatedOrder, ...getOrdersLS().filter(o => String(o.id) !== String(id))]
+      setOrders(updated)
+      if (showDetails && String(showDetails.id) === String(id)) setShowDetails(updatedOrder)
+      try { localStorage.setItem(`order_seen_${eid}_${id}`,'true') } catch(e) {}
+    } catch (error) {
+      showToast({
+        titulo: 'Falha ao atualizar pedido',
+        mensagem: error?.body?.message || 'Nao foi possivel atualizar o status do pedido.',
+        tipo: 'warning',
+      })
+    }
   }
   // Polling e alerta visual/sonoro para novos pedidos
   useEffect(()=>{
-    const id = setInterval(()=> {
-      const list = getOrdersLS()
-      setOrders(list)
+    let active = true
+    const load = async () => {
       try {
+        const list = await refreshOrdersFromApi({ establishmentId: eid })
+        if (!active) return
+        setOrders(list)
         const soundEnabled = (localStorage.getItem(`adminSoundEnabled_${eid}`) || 'true') !== 'false'
-        (list||[]).forEach(o => {
+        ;(list || []).forEach(o => {
           const known = !!prevIdsRef.current[o.id]
           if (!known){
             prevIdsRef.current[o.id] = true
@@ -2679,13 +2780,15 @@ function AdminOrders(){
             } catch(e) {}
           }
         })
-      } catch(e) {}
-    }, 10000)
-    return ()=> clearInterval(id)
+      } catch {}
+    }
+    load()
+    const id = setInterval(load, 10000)
+    return ()=> { active = false; clearInterval(id) }
   }, [eid])
   const timeAgo = (createdAt) => {
     try {
-      const created = new Date(createdAt)
+      const created = parseOrderDate(createdAt)
       const diffMs = Date.now() - created.getTime()
       const mins = Math.floor(diffMs / 60000)
       if (mins < 60) return `Feito há ${mins} min`
@@ -2730,7 +2833,7 @@ function AdminOrders(){
                 <label className="muted">Filtrar por status</label>
                 <select value={filterStatus} onChange={(e)=> setFilterStatus(e.target.value)}>
                   <option value="">Todos</option>
-                  {statuses.map(st => <option key={st} value={st}>{st}</option>)}
+                  {statuses.map(st => <option key={st} value={st}>{getOrderStatusLabel(st)}</option>)}
                 </select>
               </div>
               <div className="field" style={{width:240}}>
@@ -2751,13 +2854,13 @@ function AdminOrders(){
             <div style={{marginTop:8, display:'flex', gap:8, flexWrap:'wrap'}}>
               <button className={`btn outline ${filterStatus===''? 'active':''}`} onClick={()=> setFilterStatus('')}>Todos</button>
               {statuses.map(st => (
-                <button key={st} className={`btn outline ${filterStatus===st? 'active':''}`} onClick={()=> setFilterStatus(st)}>{st}</button>
+                <button key={st} className={`btn outline ${filterStatus===st? 'active':''}`} onClick={()=> setFilterStatus(st)}>{getOrderStatusLabel(st)}</button>
               ))}
               <button className="btn" onClick={()=> {
                 const todayStr = new Date().toLocaleDateString('pt-BR')
-                const todays = orders.filter(o => (new Date(o.createdAt)).toLocaleDateString('pt-BR') === todayStr)
+                const todays = orders.filter(o => parseOrderDate(o.createdAt).toLocaleDateString('pt-BR') === todayStr)
                 const header = ['id','nome','telefone','total','pagamento','status','data']
-                const lines = todays.map(o => [o.id, o.name||'', o.phone||'', (o.total||0).toFixed(2), o.paymentMethod||'', o.status||'', o.createdAt||''].join(','))
+                const lines = todays.map(o => [o.id, o.name||'', o.phone||'', (o.total||0).toFixed(2), o.paymentMethod||'', getOrderStatusLabel(o.status), formatOrderDate(o.createdAt)].join(','))
                 const csv = [header.join(','), ...lines].join('\n')
                 const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' })
                 const url = URL.createObjectURL(blob)
@@ -2779,16 +2882,16 @@ function AdminOrders(){
                 <div style={{textAlign:'right'}}>
                   <div style={{fontWeight:700}}>Total: R$ {o.total.toFixed(2)}</div>
                   <div>
-                    <span className={`badge ${badgeClass(o.status)}`}>{o.status}</span>
+                    <span className={`badge ${getOrderBadgeClass(o.status)}`}>{getOrderStatusLabel(o.status)}</span>
                   </div>
                 </div>
               </div>
               <div style={{marginTop:8, display:'flex', gap:8, flexWrap:'wrap'}}>
-                <button className="btn outline" onClick={()=> setStatus(o.id, 'Confirmado')}>✅ Confirmar</button>
-                <button className="btn outline" onClick={()=> setStatus(o.id, 'Em preparo')}>🍰 Em preparo</button>
-                <button className="btn outline" onClick={()=> setStatus(o.id, 'Saiu para entrega')}>🛵 Enviar para entrega</button>
-                <button className="btn outline" onClick={()=> setStatus(o.id, 'Entregue')}>🎉 Entregue</button>
-                <button className="btn outline" onClick={()=> setStatus(o.id, 'Cancelado')}>❌ Cancelar</button>
+                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.EM_PREPARO)}>🍰 Em preparo</button>
+                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.PRONTO)}>📦 Pronto</button>
+                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.ENTREGUE)}>🛵 Entregue</button>
+                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.FINALIZADO)}>🎉 Finalizado</button>
+                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.CANCELADO)}>❌ Cancelar</button>
                 <button className="btn outline" onClick={()=> printComanda(o)}>🧾 Comanda</button>
                 <button className="btn" onClick={()=> { try { localStorage.setItem(`order_seen_${eid}_${o.id}`,'true') } catch(e) {}; setShowDetails(o) }}>Ver Detalhes</button>
               </div>
@@ -2814,7 +2917,7 @@ function AdminOrderDetailsModal({ order, onClose }){
           <button className="close" onClick={onClose}>×</button>
         </div>
         <div className="muted">Cliente: {order.name ? `${order.name} • ${order.phone}` : order.phone}</div>
-        <div className="muted">Feito em {order.createdAt}</div>
+        <div className="muted">Feito em {formatOrderDate(order.createdAt)}</div>
         <div className="section-card" style={{marginTop:12}}>
           <div style={{fontWeight:700}}>Itens</div>
           {(order.items||[]).map(it => (
@@ -2849,7 +2952,7 @@ function AdminOrderDetailsModal({ order, onClose }){
           <div className="menu-list">
             {(order.history||[]).length===0 ? <div className="muted">Sem histórico</div> : (order.history||[]).map((h,idx)=> (
               <div key={idx} className="row" style={{justifyContent:'space-between'}}>
-                <div>{h.status}</div><div className="muted">{h.at}</div>
+                <div>{getOrderStatusLabel(h.status)}</div><div className="muted">{formatOrderDate(h.at)}</div>
               </div>
             ))}
           </div>
@@ -2954,13 +3057,25 @@ function AdminDashboard(){
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
   // Relatórios com filtros e métricas
   const [orders, setOrders] = useState(getOrdersLS())
-  useEffect(()=>{ const t = setInterval(()=> setOrders(getOrdersLS()), 10000); return ()=> clearInterval(t) },[])
+  useEffect(()=>{
+    let active = true
+    const load = async () => {
+      try {
+        const next = await refreshOrdersFromApi({ establishmentId: eid })
+        if (active) setOrders(next)
+      } catch {
+        if (active) setOrders(getOrdersLS())
+      }
+    }
+    load()
+    const t = setInterval(load, 10000)
+    return ()=> { active = false; clearInterval(t) }
+  }, [eid])
   const sum = (list) => list.reduce((s,o)=> s + (o.total||0), 0)
   const products = getProductsLS() || []
   const categoriesList = getCategoriesLS() || []
   const categoryMap = Object.fromEntries(products.map(p=> [p.id, p.category || '']))
   const paymentOptions = ['Pix','Dinheiro','Cartão de crédito','Cartão de débito','Transferência']
-  const parseBRDate = (s) => { try { const [d,m,y] = String(s).split(/[\/]/).map(x=> parseInt(x,10)); const t = String(s).split(' '); const hm = (t[1]||'00:00').split(':').map(x=> parseInt(x,10)); return new Date(y, m-1, d, hm[0]||0, hm[1]||0) } catch { return new Date() } }
   const [period, setPeriod] = useState('hoje')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -2985,10 +3100,10 @@ function AdminDashboard(){
     }
     return [weekStart,todayEnd]
   })()
-  const isConfirmed = (st) => st !== 'Cancelado'
+  const isConfirmed = (st) => st !== ORDER_STATUSES.CANCELADO
   const filtered = orders.filter(o => {
     if (!isConfirmed(o.status||'')) return false
-    const d = parseBRDate(o.createdAt)
+    const d = parseOrderDate(o.createdAt)
     const inRange = d >= periodRange[0] && d <= periodRange[1]
     const payOk = !filterPayment || (o.paymentMethod||'') === filterPayment
     const catOk = !filterCategory || (o.items||[]).some(it=> (categoryMap[it.productId]||'') === filterCategory)
@@ -2997,7 +3112,7 @@ function AdminDashboard(){
   const prevRange = (()=>{ const ms = periodRange[1] - periodRange[0]; const endPrev = new Date(periodRange[0].getTime()-1); const startPrev = new Date(periodRange[0].getTime()-ms); return [startPrev, endPrev] })()
   const prevFiltered = compare ? orders.filter(o => {
     if (!isConfirmed(o.status||'')) return false
-    const d = parseBRDate(o.createdAt)
+    const d = parseOrderDate(o.createdAt)
     const inRange = d >= prevRange[0] && d <= prevRange[1]
     const payOk = !filterPayment || (o.paymentMethod||'') === filterPayment
     const catOk = !filterCategory || (o.items||[]).some(it=> (categoryMap[it.productId]||'') === filterCategory)
@@ -3012,7 +3127,7 @@ function AdminDashboard(){
   const produto_top = Object.entries(productQtyMap).sort((a,b)=> b[1]-a[1])[0]?.[0] || '—'
   const pagamento_top = Object.entries(filtered.reduce((acc,o)=> { const k=o.paymentMethod||'Outros'; acc[k]=(acc[k]||0)+1; return acc },{})).sort((a,b)=> b[1]-a[1])[0]?.[0] || '—'
   const dailyMap = {}
-  filtered.forEach(o => { const d = parseBRDate(o.createdAt); const key = d.toLocaleDateString('pt-BR'); dailyMap[key] = (dailyMap[key]||0) + (o.total||0) })
+  filtered.forEach(o => { const d = parseOrderDate(o.createdAt); const key = d.toLocaleDateString('pt-BR'); dailyMap[key] = (dailyMap[key]||0) + (o.total||0) })
   const dailyChrono = Object.entries(dailyMap).sort((a,b)=>{ const pa = a[0].split('/').reverse().join('-'); const pb = b[0].split('/').reverse().join('-'); return new Date(pa) - new Date(pb) })
   const payMap = {}
   filtered.forEach(o => { const k=o.paymentMethod||'Outros'; payMap[k]=(payMap[k]||0)+1 })
@@ -3917,8 +4032,8 @@ function Success(){
   const { establishment } = useContext(EstablishmentContext)
   // Busca o último pedido salvo para montar a mensagem
   const lastOrder = (() => {
-    const list = getOrdersLS()
-    return (list && list.length > 0) ? list[list.length - 1] : null
+    const eid = (establishment?.id) || getCurrentEstabId()
+    return getLastConfirmedOrder(eid) || getOrdersLS()[0] || null
   })()
 
   useEffect(() => {
@@ -3948,7 +4063,7 @@ function Success(){
       `*🛍️ NOVO PEDIDO - ${loja}*`,
       '',
       `#️⃣ Pedido Nº: *${lastOrder.id}*`,
-      `📅 Feito em: ${lastOrder.createdAt}`,
+      `📅 Feito em: ${formatOrderDate(lastOrder.createdAt)}`,
       '',
       `👤 Cliente: *${auth?.name || 'Cliente'}*`,
       `📞 Telefone: ${auth?.phone || ''}`,
@@ -4267,6 +4382,25 @@ export default function App() {
       localStorage.setItem('auth', JSON.stringify(auth))
     } catch {}
   }, [auth])
+  useEffect(() => {
+    const eid = (establishment?.id) || getCurrentEstabId()
+    if (!eid || !auth?.loggedIn || !auth?.phone) return
+    let active = true
+    const recoverPendingOrders = async () => {
+      try {
+        const recovered = await syncPendingOrders({ establishmentId: eid, phone: auth.phone })
+        if (!active || recovered.length === 0) return
+        setCart([])
+        showToast({
+          titulo: 'Pedido recuperado',
+          mensagem: 'Seu pedido pendente foi confirmado pelo servidor.',
+          tipo: 'sucesso',
+        })
+      } catch {}
+    }
+    recoverPendingOrders()
+    return () => { active = false }
+  }, [auth?.loggedIn, auth?.phone, establishment?.id])
   useEffect(() => {
     try {
       const eid = getCurrentEstabId()

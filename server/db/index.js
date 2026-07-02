@@ -56,6 +56,55 @@ CREATE TABLE IF NOT EXISTS product_history (
   changed_keys_json TEXT,
   at TEXT
 );
+CREATE TABLE IF NOT EXISTS orders (
+  id TEXT PRIMARY KEY,
+  establishment_id TEXT NOT NULL,
+  client_order_id TEXT NOT NULL,
+  customer_name TEXT NOT NULL,
+  customer_phone TEXT NOT NULL,
+  customer_phone_normalized TEXT NOT NULL,
+  fulfillment_type TEXT NOT NULL DEFAULT 'delivery',
+  address_json TEXT,
+  payment_method TEXT NOT NULL,
+  change_for_amount REAL,
+  notes TEXT,
+  subtotal REAL NOT NULL,
+  discount REAL NOT NULL DEFAULT 0,
+  fee REAL NOT NULL DEFAULT 0,
+  total REAL NOT NULL,
+  coupon_json TEXT,
+  status TEXT NOT NULL,
+  status_updated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_establishment_client_order_id ON orders (establishment_id, client_order_id);
+CREATE INDEX IF NOT EXISTS idx_orders_establishment_created_at ON orders (establishment_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_orders_establishment_phone ON orders (establishment_id, customer_phone_normalized);
+CREATE TABLE IF NOT EXISTS order_items (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL,
+  establishment_id TEXT NOT NULL,
+  product_id TEXT,
+  name TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  unit_price REAL NOT NULL,
+  line_total REAL NOT NULL,
+  choice_json TEXT,
+  notes TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items (order_id, establishment_id);
+CREATE TABLE IF NOT EXISTS order_status_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id TEXT NOT NULL,
+  establishment_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  changed_at TEXT NOT NULL,
+  changed_by TEXT,
+  note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_order_status_history_order ON order_status_history (order_id, establishment_id, changed_at);
 `
 
 const POSTGRES_SCHEMA_SQL = `
@@ -112,6 +161,55 @@ CREATE TABLE IF NOT EXISTS product_history (
   changed_keys_json TEXT,
   at TEXT
 );
+CREATE TABLE IF NOT EXISTS orders (
+  id TEXT PRIMARY KEY,
+  establishment_id TEXT NOT NULL,
+  client_order_id TEXT NOT NULL,
+  customer_name TEXT NOT NULL,
+  customer_phone TEXT NOT NULL,
+  customer_phone_normalized TEXT NOT NULL,
+  fulfillment_type TEXT NOT NULL DEFAULT 'delivery',
+  address_json TEXT,
+  payment_method TEXT NOT NULL,
+  change_for_amount DOUBLE PRECISION,
+  notes TEXT,
+  subtotal DOUBLE PRECISION NOT NULL,
+  discount DOUBLE PRECISION NOT NULL DEFAULT 0,
+  fee DOUBLE PRECISION NOT NULL DEFAULT 0,
+  total DOUBLE PRECISION NOT NULL,
+  coupon_json TEXT,
+  status TEXT NOT NULL,
+  status_updated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_establishment_client_order_id ON orders (establishment_id, client_order_id);
+CREATE INDEX IF NOT EXISTS idx_orders_establishment_created_at ON orders (establishment_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_orders_establishment_phone ON orders (establishment_id, customer_phone_normalized);
+CREATE TABLE IF NOT EXISTS order_items (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL,
+  establishment_id TEXT NOT NULL,
+  product_id TEXT,
+  name TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  unit_price DOUBLE PRECISION NOT NULL,
+  line_total DOUBLE PRECISION NOT NULL,
+  choice_json TEXT,
+  notes TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items (order_id, establishment_id);
+CREATE TABLE IF NOT EXISTS order_status_history (
+  id BIGSERIAL PRIMARY KEY,
+  order_id TEXT NOT NULL,
+  establishment_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  changed_at TEXT NOT NULL,
+  changed_by TEXT,
+  note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_order_status_history_order ON order_status_history (order_id, establishment_id, changed_at);
 `
 
 let dbInstance

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { appConfig } from './config.js'
 import { getDatabase } from './db/index.js'
 import { log, serializeError } from './logger.js'
+import { registerOrderRoutes } from './orders-api.js'
 import { createUsageStats } from './usage-stats.js'
 
 const usageStats = createUsageStats()
@@ -44,6 +45,18 @@ const isRetryableDbError = (error) => {
 }
 
 const handleDbError = (res, error, context = {}) => {
+  if (error?.publicBody) {
+    log('error', 'api.public_error', {
+      ...context,
+      status: error.httpStatus || 400,
+      error: serializeError(error),
+    })
+    if (!res.headersSent) {
+      res.status(error.httpStatus || 400).json(error.publicBody)
+    }
+    return
+  }
+
   const retryable = error?.retryable ?? isRetryableDbError(error)
   const status = retryable ? 503 : 500
   const body = retryable
@@ -218,6 +231,13 @@ export const createApp = async () => {
 
   app.get('/admin/usage-stats', usageStatsHandler)
   app.get('/api/admin/usage-stats', usageStatsHandler)
+
+  registerOrderRoutes({
+    app,
+    database,
+    withDbRetry,
+    asyncRoute,
+  })
 
   app.get('/api/establishment/:id/status', asyncRoute(async (req, res) => {
     const { id } = req.params
