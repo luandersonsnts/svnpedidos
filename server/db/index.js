@@ -263,7 +263,7 @@ const createLibsqlDb = (config) => {
     },
     healthcheck: async () => libsqlClient.execute('SELECT 1 AS ok'),
     transaction: async (work) => {
-      const tx = libsqlClient.transaction('write')
+      const tx = await libsqlClient.transaction('write')
       const txDb = {
         mode: 'libsql',
         prepare: (sql) => createStatementAdapter((statement) => tx.execute(statement), sql),
