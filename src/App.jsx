@@ -1,6 +1,7 @@
 import React, { useState, useContext, createContext, useEffect, useMemo, useRef } from 'react'
 import { Routes, Route, Link, useNavigate, useLocation, useParams } from 'react-router-dom'
 import Button from './ui/Button'
+import { API_BASE, DEFAULT_ADMIN_PASSWORD, DEFAULT_WHATSAPP_NUMBER } from './config'
 
 // Contexto simples para cupom aplicado
 const CouponContext = createContext({ coupon: null, setCoupon: () => {} })
@@ -154,7 +155,7 @@ function Home() {
   const [apiCats, setApiCats] = useState(null)
   const [apiProds, setApiProds] = useState(null)
   const [estInactive, setEstInactive] = useState(false)
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+  const apiBase = API_BASE
   const [estStatus, setEstStatus] = useState(null)
   useEffect(()=>{ fetch(`${apiBase}/api/establishment/${eid}/status`).then(r=> r.ok? r.json(): null).then(s=> setEstStatus(s)).catch(()=> setEstStatus(null)) }, [eid])
   // Listener global para abrir o modal de CEP a partir do Home
@@ -2549,7 +2550,7 @@ function AdminLogin(){
   const [error, setError] = useState('')
   const est = (()=>{ try{ return JSON.parse(localStorage.getItem('establishment')||'{}') } catch{ return {} } })()
   const expectedId = (est?.id) || 'default'
-  const expectedPass = (est?.adminPassword) || (localStorage.getItem('adminAccessKey') || 'RVADMIN')
+  const expectedPass = (est?.adminPassword) || (localStorage.getItem('adminAccessKey') || DEFAULT_ADMIN_PASSWORD)
   const canLogin = estabId.trim().length>0 && pass.trim().length>0
   const login = () => {
     if (!canLogin) return
@@ -3304,7 +3305,7 @@ function AdminItems(){
   const eid = getCurrentEstabId()
   const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+  const apiBase = API_BASE
   const [estStatus, setEstStatus] = useState(null)
   useEffect(()=>{ fetch(`${apiBase}/api/establishment/${eid}/status`).then(r=> r.ok? r.json(): null).then(s=> setEstStatus(s)).catch(()=> setEstStatus(null)) }, [eid])
   const [catAvailability, setCatAvailability] = useState(()=> { try { return JSON.parse(localStorage.getItem(`categoriesAvailability_${eid}`) || '{}') } catch(e){ return {} } })
@@ -3975,7 +3976,7 @@ function Success(){
     try {
       const eid = getCurrentEstabId()
       const sentKey = `wa_sent_order_${eid}_${lastOrder.id}`
-      const waNumber = localStorage.getItem(`whatsappNumber_${eid}`) || '5587988474060'
+      const waNumber = localStorage.getItem(`whatsappNumber_${eid}`) || DEFAULT_WHATSAPP_NUMBER
       if (!localStorage.getItem(sentKey)){
         const url = `https://wa.me/${waNumber}?text=` + encodeURIComponent(msg)
         // Redirecionar imediatamente para o WhatsApp, ao invés de abrir nova aba
@@ -4112,16 +4113,7 @@ function Loyalty(){
 }
 
 export default function App() {
-  const isLocalHost = (()=>{ try { const h = typeof window!=='undefined'? window.location.hostname : ''; return /^(localhost|127\.0\.0\.1)$/i.test(h) } catch { return true } })()
-  const apiBase = import.meta.env.VITE_API_URL || (isLocalHost ? 'http://localhost:3001' : '/api')
-  // Aviso em produção se a API estiver apontando para localhost (variável não configurada)
-  try {
-    const host = typeof window !== 'undefined' ? window.location.hostname : ''
-    const isProdLike = host && !/^(localhost|127\.0\.0\.1)$/i.test(host)
-    if (isProdLike && /localhost:3001/.test(apiBase)) {
-      console.warn('VITE_API_URL não configurado: frontend está tentando usar http://localhost:3001 em produção. Configure VITE_API_URL no Vercel para habilitar sincronização de estabelecimento.')
-    }
-  } catch {}
+  const apiBase = API_BASE
   const [coupon, setCoupon] = useState(null)
   const [establishment, setEstablishment] = useState(() => {
     try {
@@ -4550,9 +4542,7 @@ function EstabConfig(){
   const navigate = useNavigate()
   const location = useLocation()
   const isAdmin = location.pathname.startsWith('/admin')
-  // Base de API consistente com o App: localhost em dev e '/api' em produção
-  const isLocalHost = (()=>{ try { const h = typeof window!=='undefined'? window.location.hostname : ''; return /^(localhost|127\.0\.0\.1)$/i.test(h) } catch { return true } })()
-  const apiBase = import.meta.env.VITE_API_URL || (isLocalHost ? 'http://localhost:3001' : '/api')
+  const apiBase = API_BASE
   const { establishment, setEstablishment } = useContext(EstablishmentContext)
   const dayLabels = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
   const ensureSevenDays = (inHours) => {
@@ -4575,7 +4565,7 @@ function EstabConfig(){
     return result.map(h => ({ label: h.label, value: h.value || 'Fechado' }))
   }
   const [id, setId] = useState(establishment?.id || '')
-  const [adminPassword, setAdminPassword] = useState(establishment?.adminPassword || (localStorage.getItem('adminAccessKey') || 'RVADMIN'))
+  const [adminPassword, setAdminPassword] = useState(establishment?.adminPassword || (localStorage.getItem('adminAccessKey') || DEFAULT_ADMIN_PASSWORD))
   const [name, setName] = useState(establishment?.name || '')
   const [city, setCity] = useState(establishment?.city || '')
   const [uf, setUf] = useState(establishment?.uf || '')

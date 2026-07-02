@@ -1,0 +1,44 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${SERVER_PORT:-3001}:3001"
+    environment:
+      NODE_ENV: production
+      APP_RUNTIME_MODE: server
+      PORT: 3001
+      SERVER_HOST: 0.0.0.0
+      DB_PROVIDER: ${DB_PROVIDER:-sqlite}
+      SQLITE_DB_FILE: ${SQLITE_DB_FILE:-/data/data.sqlite}
+      LIBSQL_DB_URL: ${LIBSQL_DB_URL:-}
+      LIBSQL_DB_TOKEN: ${LIBSQL_DB_TOKEN:-}
+      DATABASE_URL: ${DATABASE_URL:-postgres://svnpedidos:svnpedidos@postgres:5432/svnpedidos}
+      API_UPSTREAM_URL: ${API_UPSTREAM_URL:-}
+      USAGE_STATS_TOKEN: ${USAGE_STATS_TOKEN:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      VITE_API_URL: ${VITE_API_URL:-}
+      VITE_DEFAULT_ADMIN_PASSWORD: ${VITE_DEFAULT_ADMIN_PASSWORD:-}
+      VITE_DEFAULT_WHATSAPP_NUMBER: ${VITE_DEFAULT_WHATSAPP_NUMBER:-}
+    volumes:
+      - sqlite_data:/data
+    restart: unless-stopped
+    profiles: ["sqlite", "postgres"]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: svnpedidos
+      POSTGRES_USER: svnpedidos
+      POSTGRES_PASSWORD: svnpedidos
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    profiles: ["postgres"]
+
+volumes:
+  sqlite_data:
+  postgres_data:
