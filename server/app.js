@@ -2,16 +2,73 @@ import express from 'express'
 import cors from 'cors'
 import bodyParser from 'body-parser'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { appConfig } from './config.js'
 import { getDatabase } from './db/index.js'
 import { log, serializeError } from './logger.js'
 import { registerOrderRoutes } from './orders-api.js'
 import { createUsageStats } from './usage-stats.js'
+import { computeEstablishmentStatus, parseEstablishmentSettings, resolveDeliveryQuote, serializeEstablishmentPayload } from './establishment-runtime.js'
+import { buildCouponWriteModel, getCouponByCode, mapCouponRow, validateCouponForOrder } from './coupon-runtime.js'
 
 const usageStats = createUsageStats()
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const nowIso = () => new Date().toISOString()
 const toBool = (value) => !!(value && (value === 1 || value === true || value === 'true'))
+const isDuplicateColumnError = (error) => {
+  const message = String(error?.message || error || '').toLowerCase()
+  return message.includes('duplicate column') || message.includes('already exists')
+}
+
+const runOptionalMigration = async (database, sql) => {
+  try {
+    await database.exec(sql)
+  } catch (error) {
+    if (isDuplicateColumnError(error)) return
+    throw error
+  }
+}
+
+const ensureSchemaMigrations = async (database) => {
+  const statements = [
+    'ALTER TABLE establishments ADD COLUMN instagram TEXT',
+    'ALTER TABLE establishments ADD COLUMN hours_json TEXT',
+    'ALTER TABLE establishments ADD COLUMN payment_methods_json TEXT',
+    'ALTER TABLE establishments ADD COLUMN base_address_json TEXT',
+    'ALTER TABLE establishments ADD COLUMN delivery_rules_json TEXT',
+    'ALTER TABLE establishments ADD COLUMN theme_json TEXT',
+    'ALTER TABLE orders ADD COLUMN delivery_fee REAL NOT NULL DEFAULT 0',
+    `CREATE TABLE IF NOT EXISTS coupons (
+      id TEXT PRIMARY KEY,
+      establishment_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      discount_type TEXT NOT NULL,
+      discount_value REAL NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      expires_at TEXT,
+      usage_limit INTEGER,
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_establishment_code ON coupons (establishment_id, code)',
+  ]
+
+  for (const statement of statements) {
+    await runOptionalMigration(database, statement)
+  }
+}
+
+const loadEstablishmentSettings = async (database, id) => {
+  const row = await database.prepare(`
+    SELECT id, name, city, uf, avatar_url, cover_url, status, billing_status, paid_until, plan,
+           support_contact, instagram, hours_json, payment_methods_json, base_address_json,
+           delivery_rules_json, theme_json, created_at, updated_at
+    FROM establishments
+    WHERE id=?
+  `).get(id)
+  return row ? parseEstablishmentSettings(row) : null
+}
 
 const isRetryableDbError = (error) => {
   const message = String(error?.message || error || '').toLowerCase()
@@ -161,6 +218,12 @@ export const createApp = async () => {
     context: { driver: database.mode },
     writeKey: 'schema.bootstrap',
   })
+  await withDbRetry({
+    label: 'schema.migrations',
+    operation: () => ensureSchemaMigrations(database),
+    context: { driver: database.mode },
+    writeKey: 'schema.migrations',
+  })
 
   const app = express()
   app.use(cors())
@@ -237,41 +300,221 @@ export const createApp = async () => {
     database,
     withDbRetry,
     asyncRoute,
+    loadEstablishmentSettings: (id) => loadEstablishmentSettings(database, id),
   })
 
   app.get('/api/establishment/:id/status', asyncRoute(async (req, res) => {
-    const { id } = req.params
-    const row = await database.prepare('SELECT status, billing_status, name, support_contact FROM establishments WHERE id=?').get(id)
-    if (!row) return res.status(404).json({ error: 'not_found' })
-    res.json(row)
+    const settings = await loadEstablishmentSettings(database, req.params.id)
+    if (!settings) return res.status(404).json({ error: 'not_found' })
+    const runtime = computeEstablishmentStatus(settings)
+    res.json({
+      id: settings.id,
+      name: settings.name,
+      status: settings.status,
+      billing_status: settings.billing_status,
+      support_contact: settings.support_contact,
+      hours: settings.hours,
+      is_open: runtime.is_open,
+      accepts_orders: runtime.accepts_orders,
+      open_status: runtime.open_status,
+      label: runtime.label,
+      reason: runtime.reason,
+      current_day: runtime.current_day,
+      current_ranges: runtime.current_ranges,
+      next_open_label: runtime.next_open_label || null,
+    })
   }))
 
   app.post('/api/establishment', asyncRoute(async (req, res) => {
-    const { id, name, city, uf, support_contact, avatar_url, cover_url } = req.body || {}
+    const payload = req.body || {}
+    const {
+      id,
+      name,
+      city,
+      uf,
+      support_contact,
+      avatar_url,
+      cover_url,
+    } = payload
     if (!id || String(id).trim().length === 0) return res.status(400).json({ error: 'missing_id' })
 
     const now = nowIso()
     const exists = await database.prepare('SELECT id FROM establishments WHERE id=?').get(id)
+    const settingsPayload = serializeEstablishmentPayload({
+      instagram: payload.instagram,
+      hours: payload.hours,
+      payment_methods: payload.payment_methods,
+      base_address: payload.base_address,
+      delivery_rules: payload.delivery_rules,
+      theme: payload.theme,
+    })
 
     await withDbRetry({
       label: exists ? 'establishment.update' : 'establishment.create',
       context: { establishment_id: id, driver: database.mode },
       writeKey: exists ? 'establishment.update' : 'establishment.create',
       operation: () => exists
-        ? database.prepare('UPDATE establishments SET name=?, city=?, uf=?, support_contact=?, avatar_url=?, cover_url=?, updated_at=? WHERE id=?')
-          .run(name || null, city || null, uf || null, support_contact || null, avatar_url || null, cover_url || null, now, id)
-        : database.prepare('INSERT INTO establishments (id,name,city,uf,avatar_url,cover_url,status,billing_status,support_contact,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-          .run(id, name || null, city || null, uf || null, avatar_url || null, cover_url || null, 'active', 'paid', support_contact || null, now, now),
+        ? database.prepare(`
+          UPDATE establishments
+          SET name=?, city=?, uf=?, support_contact=?, avatar_url=?, cover_url=?, instagram=?,
+              hours_json=?, payment_methods_json=?, base_address_json=?, delivery_rules_json=?, theme_json=?, updated_at=?
+          WHERE id=?
+        `).run(
+          name || null,
+          city || null,
+          uf || null,
+          support_contact || null,
+          avatar_url || null,
+          cover_url || null,
+          settingsPayload.instagram,
+          settingsPayload.hours_json,
+          settingsPayload.payment_methods_json,
+          settingsPayload.base_address_json,
+          settingsPayload.delivery_rules_json,
+          settingsPayload.theme_json,
+          now,
+          id,
+        )
+        : database.prepare(`
+          INSERT INTO establishments (
+            id,name,city,uf,avatar_url,cover_url,status,billing_status,support_contact,instagram,
+            hours_json,payment_methods_json,base_address_json,delivery_rules_json,theme_json,created_at,updated_at
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).run(
+          id,
+          name || null,
+          city || null,
+          uf || null,
+          avatar_url || null,
+          cover_url || null,
+          'active',
+          'paid',
+          support_contact || null,
+          settingsPayload.instagram,
+          settingsPayload.hours_json,
+          settingsPayload.payment_methods_json,
+          settingsPayload.base_address_json,
+          settingsPayload.delivery_rules_json,
+          settingsPayload.theme_json,
+          now,
+          now,
+        ),
     })
 
     res.json({ ok: true })
   }))
 
   app.get('/api/establishment/:id', asyncRoute(async (req, res) => {
-    const { id } = req.params
-    const row = await database.prepare('SELECT id,name,city,uf,avatar_url,cover_url,status,billing_status,paid_until,plan,support_contact,created_at,updated_at FROM establishments WHERE id=?').get(id)
-    if (!row) return res.status(404).json({ error: 'not_found' })
-    res.json(row)
+    const settings = await loadEstablishmentSettings(database, req.params.id)
+    if (!settings) return res.status(404).json({ error: 'not_found' })
+    res.json(settings)
+  }))
+
+  app.post('/api/establishment/:id/delivery-quote', asyncRoute(async (req, res) => {
+    const settings = await loadEstablishmentSettings(database, req.params.id)
+    if (!settings) return res.status(404).json({ error: 'not_found' })
+    const quote = resolveDeliveryQuote({ settings, address: req.body || {} })
+    res.json({ ok: true, quote })
+  }))
+
+  app.get('/api/coupons', asyncRoute(async (req, res) => {
+    const establishmentId = String(req.query.establishment_id || '').trim()
+    if (!establishmentId) return res.status(400).json({ error: 'missing_establishment_id' })
+    const rows = await database.prepare('SELECT * FROM coupons WHERE establishment_id=? ORDER BY created_at DESC, code ASC').all(establishmentId)
+    res.json({ ok: true, coupons: rows.map(mapCouponRow) })
+  }))
+
+  app.post('/api/coupons', asyncRoute(async (req, res) => {
+    const model = buildCouponWriteModel(req.body || {})
+    if (!model.establishment_id) return res.status(400).json({ error: 'missing_establishment_id' })
+
+    const existing = await database.prepare('SELECT id FROM coupons WHERE establishment_id=? AND code=?').get(model.establishment_id, model.code)
+    if (existing) {
+      return res.status(409).json({ error: 'coupon_conflict', message: 'Ja existe um cupom com esse codigo.' })
+    }
+
+    const now = nowIso()
+    await withDbRetry({
+      label: 'coupon.create',
+      context: { establishment_id: model.establishment_id, coupon_code: model.code, driver: database.mode },
+      writeKey: 'coupon.create',
+      operation: () => database.prepare(`
+        INSERT INTO coupons (id, establishment_id, code, discount_type, discount_value, active, expires_at, usage_limit, usage_count, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        model.id,
+        model.establishment_id,
+        model.code,
+        model.discount_type,
+        model.discount_value,
+        model.active,
+        model.expires_at,
+        model.usage_limit,
+        model.usage_count,
+        now,
+        now,
+      ),
+    })
+
+    const coupon = await database.prepare('SELECT * FROM coupons WHERE id=?').get(model.id)
+    res.status(201).json({ ok: true, coupon: mapCouponRow(coupon) })
+  }))
+
+  app.put('/api/coupons/:id', asyncRoute(async (req, res) => {
+    const existing = await database.prepare('SELECT * FROM coupons WHERE id=?').get(req.params.id)
+    if (!existing) return res.status(404).json({ error: 'not_found' })
+    const model = buildCouponWriteModel(req.body || {}, mapCouponRow(existing))
+    const conflict = await database.prepare('SELECT id FROM coupons WHERE establishment_id=? AND code=? AND id<>?').get(model.establishment_id, model.code, req.params.id)
+    if (conflict) {
+      return res.status(409).json({ error: 'coupon_conflict', message: 'Ja existe um cupom com esse codigo.' })
+    }
+
+    await withDbRetry({
+      label: 'coupon.update',
+      context: { establishment_id: model.establishment_id, coupon_id: req.params.id, driver: database.mode },
+      writeKey: 'coupon.update',
+      operation: () => database.prepare(`
+        UPDATE coupons
+        SET code=?, discount_type=?, discount_value=?, active=?, expires_at=?, usage_limit=?, updated_at=?
+        WHERE id=?
+      `).run(
+        model.code,
+        model.discount_type,
+        model.discount_value,
+        model.active,
+        model.expires_at,
+        model.usage_limit,
+        nowIso(),
+        req.params.id,
+      ),
+    })
+
+    const coupon = await database.prepare('SELECT * FROM coupons WHERE id=?').get(req.params.id)
+    res.json({ ok: true, coupon: mapCouponRow(coupon) })
+  }))
+
+  app.delete('/api/coupons/:id', asyncRoute(async (req, res) => {
+    const existing = await database.prepare('SELECT id FROM coupons WHERE id=?').get(req.params.id)
+    if (!existing) return res.status(404).json({ error: 'not_found' })
+    await withDbRetry({
+      label: 'coupon.delete',
+      context: { coupon_id: req.params.id, driver: database.mode },
+      writeKey: 'coupon.delete',
+      operation: () => database.prepare('DELETE FROM coupons WHERE id=?').run(req.params.id),
+    })
+    res.json({ ok: true })
+  }))
+
+  app.post('/api/coupons/validate', asyncRoute(async (req, res) => {
+    const establishmentId = String(req.body?.establishment_id || '').trim()
+    const code = String(req.body?.code || '').trim()
+    const subtotal = Number(req.body?.subtotal || 0)
+    if (!establishmentId) return res.status(400).json({ error: 'missing_establishment_id' })
+    if (!code) return res.status(400).json({ error: 'missing_code' })
+
+    const coupon = await getCouponByCode(database, { establishmentId, code })
+    const validated = validateCouponForOrder({ coupon, subtotal })
+    res.json({ ok: true, valid: true, coupon: validated })
   }))
 
   app.get('/api/categorias', asyncRoute(async (req, res) => {

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
+import { getCouponByCode, validateCouponForOrder } from './coupon-runtime.js'
+import { computeEstablishmentStatus, resolveDeliveryQuote } from './establishment-runtime.js'
 
 const ORDER_STATUS = {
   RECEBIDO: 'RECEBIDO',
@@ -75,9 +77,12 @@ const orderItemSchema = z.object({
 
 const couponSchema = z.object({
   id: z.string().trim().max(120).optional().nullable(),
+  code: z.string().trim().max(80).optional().nullable(),
   label: z.string().trim().max(160).optional().nullable(),
   type: z.string().trim().max(40).optional().nullable(),
+  discount_type: z.string().trim().max(40).optional().nullable(),
   value: z.coerce.number().optional().nullable(),
+  discount_value: z.coerce.number().optional().nullable(),
 }).passthrough()
 
 const createOrderSchema = z.object({
@@ -128,6 +133,7 @@ const mapOrder = (row, items, history) => ({
   notes: row.notes || '',
   subtotal: safeNumber(row.subtotal),
   discount: safeNumber(row.discount),
+  delivery_fee: safeNumber(row.delivery_fee, safeNumber(row.fee)),
   fee: safeNumber(row.fee),
   total: safeNumber(row.total),
   coupon: parseJsonText(row.coupon_json, null),
@@ -187,12 +193,12 @@ const canTransitionStatus = (currentStatus, nextStatus) => {
   return ALLOWED_TRANSITIONS[currentStatus]?.has(nextStatus) || false
 }
 
-const buildPersistedOrder = (payload) => {
+const buildPersistedOrder = (payload, { validatedCoupon = null, deliveryQuote = null } = {}) => {
   const items = payload.items.map((item) => {
     const quantity = Number(item.quantity ?? item.qty)
     const unitPrice = safeNumber(item.unit_price ?? item.unitPrice)
     return {
-      id: item.id || randomUUID(),
+      id: randomUUID(),
       product_id: item.product_id ?? item.productId ?? null,
       name: sanitizeText(item.name, 160),
       quantity,
@@ -204,9 +210,8 @@ const buildPersistedOrder = (payload) => {
   })
 
   const subtotal = Number(items.reduce((sum, item) => sum + item.line_total, 0).toFixed(2))
-  const discount = Number(safeNumber(payload.discount, 0).toFixed(2))
-  const feeFromAddress = safeNumber(payload.address?.fee, 0)
-  const fee = Number(safeNumber(payload.fee, feeFromAddress).toFixed(2))
+  const discount = Number(safeNumber(validatedCoupon?.discount_amount, 0).toFixed(2))
+  const fee = Number(safeNumber(deliveryQuote?.fee, payload.fulfillment_type === 'delivery' ? payload.address?.fee : 0).toFixed(2))
   const total = Number((subtotal - discount + fee).toFixed(2))
   const customerName = sanitizeText(payload.customer.name, 160)
   const customerPhone = sanitizeText(payload.customer.phone, 20)
@@ -238,9 +243,17 @@ const buildPersistedOrder = (payload) => {
     notes: sanitizeText(payload.notes || '', 1000),
     subtotal,
     discount,
+    delivery_fee: fee,
     fee,
     total,
-    coupon_json: payload.coupon ? JSON.stringify(payload.coupon) : null,
+    coupon_json: validatedCoupon ? JSON.stringify({
+      id: validatedCoupon.id,
+      code: validatedCoupon.code,
+      label: validatedCoupon.code,
+      discount_type: validatedCoupon.discount_type,
+      discount_value: validatedCoupon.discount_value,
+      discount_amount: validatedCoupon.discount_amount,
+    }) : null,
     status: ORDER_STATUS.RECEBIDO,
     items,
   }
@@ -289,7 +302,7 @@ const handleValidationError = (res, error) => {
   return null
 }
 
-export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute }) => {
+export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute, loadEstablishmentSettings }) => {
   app.get('/api/pedidos', asyncRoute(async (req, res) => {
     const establishmentId = sanitizeText(req.query.establishment_id, 120)
     if (!establishmentId) return res.status(400).json({ error: 'missing_establishment_id' })
@@ -320,7 +333,41 @@ export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute }) 
       return handleValidationError(res, error)
     }
 
-    const persistedOrder = buildPersistedOrder(payload)
+    const establishment = await loadEstablishmentSettings(payload.establishment_id)
+    if (!establishment) {
+      return res.status(404).json({ error: 'establishment_not_found', message: 'Estabelecimento nao encontrado.' })
+    }
+
+    const establishmentRuntime = computeEstablishmentStatus(establishment)
+    if (!establishmentRuntime.accepts_orders) {
+      return res.status(409).json({
+        error: 'establishment_closed',
+        message: establishmentRuntime.label || 'A loja esta fechada no momento.',
+      })
+    }
+
+    const deliveryQuote = payload.fulfillment_type === 'delivery'
+      ? resolveDeliveryQuote({ settings: establishment, address: payload.address || {} })
+      : { fee: 0 }
+
+    const subtotal = Number(payload.items.reduce((sum, item) => {
+      const quantity = Number(item.quantity ?? item.qty ?? 0)
+      const unitPrice = safeNumber(item.unit_price ?? item.unitPrice, 0)
+      return sum + (quantity * unitPrice)
+    }, 0).toFixed(2))
+
+    const couponCode = payload.coupon?.code || payload.coupon?.id || ''
+    const validatedCoupon = couponCode
+      ? validateCouponForOrder({
+          coupon: await getCouponByCode(database, {
+            establishmentId: payload.establishment_id,
+            code: couponCode,
+          }),
+          subtotal,
+        })
+      : null
+
+    const persistedOrder = buildPersistedOrder(payload, { validatedCoupon, deliveryQuote })
 
     if (!persistedOrder.customer_phone_normalized) {
       return res.status(400).json({
@@ -357,7 +404,7 @@ export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute }) 
         }
 
         const createdAt = new Date().toISOString()
-        await tx.prepare('INSERT INTO orders (id, establishment_id, client_order_id, customer_name, customer_phone, customer_phone_normalized, fulfillment_type, address_json, payment_method, change_for_amount, notes, subtotal, discount, fee, total, coupon_json, status, status_updated_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        await tx.prepare('INSERT INTO orders (id, establishment_id, client_order_id, customer_name, customer_phone, customer_phone_normalized, fulfillment_type, address_json, payment_method, change_for_amount, notes, subtotal, discount, delivery_fee, fee, total, coupon_json, status, status_updated_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
           .run(
             persistedOrder.id,
             persistedOrder.establishment_id,
@@ -372,6 +419,7 @@ export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute }) 
             persistedOrder.notes,
             persistedOrder.subtotal,
             persistedOrder.discount,
+            persistedOrder.delivery_fee,
             persistedOrder.fee,
             persistedOrder.total,
             persistedOrder.coupon_json,
@@ -380,6 +428,11 @@ export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute }) 
             createdAt,
             createdAt,
           )
+
+        if (validatedCoupon) {
+          await tx.prepare('UPDATE coupons SET usage_count=usage_count+1, updated_at=? WHERE id=?')
+            .run(createdAt, validatedCoupon.id)
+        }
 
         for (const item of persistedOrder.items) {
           await tx.prepare('INSERT INTO order_items (id, order_id, establishment_id, product_id, name, quantity, unit_price, line_total, choice_json, notes, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')

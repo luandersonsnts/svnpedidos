@@ -70,6 +70,7 @@ const normalizeOrder = (order) => {
     updatedAt: order.updated_at,
     statusUpdatedAt: order.status_updated_at,
     statusLabel: ORDER_STATUS_LABELS[order.status] || order.status,
+    deliveryFee: order.delivery_fee ?? order.fee ?? 0,
     items: (order.items || []).map((item) => ({
       ...item,
       productId: item.product_id,

@@ -15,6 +15,12 @@ CREATE TABLE IF NOT EXISTS establishments (
   paid_until TEXT,
   plan TEXT,
   support_contact TEXT,
+  instagram TEXT,
+  hours_json TEXT,
+  payment_methods_json TEXT,
+  base_address_json TEXT,
+  delivery_rules_json TEXT,
+  theme_json TEXT,
   created_at TEXT,
   updated_at TEXT
 );
@@ -70,6 +76,7 @@ CREATE TABLE IF NOT EXISTS orders (
   notes TEXT,
   subtotal REAL NOT NULL,
   discount REAL NOT NULL DEFAULT 0,
+  delivery_fee REAL NOT NULL DEFAULT 0,
   fee REAL NOT NULL DEFAULT 0,
   total REAL NOT NULL,
   coupon_json TEXT,
@@ -81,6 +88,20 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_establishment_client_order_id ON orders (establishment_id, client_order_id);
 CREATE INDEX IF NOT EXISTS idx_orders_establishment_created_at ON orders (establishment_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_establishment_phone ON orders (establishment_id, customer_phone_normalized);
+CREATE TABLE IF NOT EXISTS coupons (
+  id TEXT PRIMARY KEY,
+  establishment_id TEXT NOT NULL,
+  code TEXT NOT NULL,
+  discount_type TEXT NOT NULL,
+  discount_value REAL NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  expires_at TEXT,
+  usage_limit INTEGER,
+  usage_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_establishment_code ON coupons (establishment_id, code);
 CREATE TABLE IF NOT EXISTS order_items (
   id TEXT PRIMARY KEY,
   order_id TEXT NOT NULL,
@@ -120,6 +141,12 @@ CREATE TABLE IF NOT EXISTS establishments (
   paid_until TEXT,
   plan TEXT,
   support_contact TEXT,
+  instagram TEXT,
+  hours_json TEXT,
+  payment_methods_json TEXT,
+  base_address_json TEXT,
+  delivery_rules_json TEXT,
+  theme_json TEXT,
   created_at TEXT,
   updated_at TEXT
 );
@@ -175,6 +202,7 @@ CREATE TABLE IF NOT EXISTS orders (
   notes TEXT,
   subtotal DOUBLE PRECISION NOT NULL,
   discount DOUBLE PRECISION NOT NULL DEFAULT 0,
+  delivery_fee DOUBLE PRECISION NOT NULL DEFAULT 0,
   fee DOUBLE PRECISION NOT NULL DEFAULT 0,
   total DOUBLE PRECISION NOT NULL,
   coupon_json TEXT,
@@ -186,6 +214,20 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_establishment_client_order_id ON orders (establishment_id, client_order_id);
 CREATE INDEX IF NOT EXISTS idx_orders_establishment_created_at ON orders (establishment_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_establishment_phone ON orders (establishment_id, customer_phone_normalized);
+CREATE TABLE IF NOT EXISTS coupons (
+  id TEXT PRIMARY KEY,
+  establishment_id TEXT NOT NULL,
+  code TEXT NOT NULL,
+  discount_type TEXT NOT NULL,
+  discount_value DOUBLE PRECISION NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  expires_at TEXT,
+  usage_limit INTEGER,
+  usage_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_establishment_code ON coupons (establishment_id, code);
 CREATE TABLE IF NOT EXISTS order_items (
   id TEXT PRIMARY KEY,
   order_id TEXT NOT NULL,

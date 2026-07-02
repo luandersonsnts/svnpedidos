@@ -3,6 +3,20 @@ import { Routes, Route, Link, useNavigate, useLocation, useParams } from 'react-
 import Button from './ui/Button'
 import { API_BASE, DEFAULT_ADMIN_PASSWORD, DEFAULT_WHATSAPP_NUMBER } from './config'
 import {
+  fetchDeliveryQuote,
+  fetchEstablishment,
+  fetchEstablishmentStatus,
+  normalizeEstablishment,
+  saveEstablishment,
+} from './establishment'
+import {
+  createCoupon,
+  deleteCoupon,
+  fetchCoupons,
+  updateCoupon,
+  validateCoupon,
+} from './coupons'
+import {
   ORDER_STATUSES,
   ORDER_STATUS_LABELS,
   clearCheckoutDraft,
@@ -197,6 +211,7 @@ const getOrderStatusIcon = (status) => {
 }
 
 function Home() {
+  const location = useLocation()
   const [showInfo, setShowInfo] = useState(false)
   const [showCoupons, setShowCoupons] = useState(false)
   const [showCepModal, setShowCepModal] = useState(false)
@@ -223,7 +238,15 @@ function Home() {
   const [estInactive, setEstInactive] = useState(false)
   const apiBase = API_BASE
   const [estStatus, setEstStatus] = useState(null)
-  useEffect(()=>{ fetch(`${apiBase}/api/establishment/${eid}/status`).then(r=> r.ok? r.json(): null).then(s=> setEstStatus(s)).catch(()=> setEstStatus(null)) }, [eid])
+  useEffect(()=>{
+    fetchEstablishmentStatus(eid)
+      .then((status) => setEstStatus(status))
+      .catch(() => setEstStatus(null))
+  }, [eid])
+  useEffect(() => {
+    const categoryFromQuery = new URLSearchParams(location.search).get('categoria') || ''
+    if (categoryFromQuery) setSelectedCategory(categoryFromQuery)
+  }, [location.search])
   // Listener global para abrir o modal de CEP a partir do Home
   useEffect(() => {
     const open = () => setShowCepModal(true)
@@ -304,6 +327,12 @@ function Home() {
     setCart(prev => [...prev, item]); setModalProduct(null); setModalChoice(null); setModalQty(1); setModalObs('')
   }
   const computeOpenStatus = () => {
+    if (estStatus?.label) {
+      return {
+        status: estStatus.open_status || (estStatus.is_open ? 'open' : 'closed'),
+        label: estStatus.label,
+      }
+    }
     const hours = (establishment && establishment.hours) || (mockEstablishment && mockEstablishment.hours) || []
     const now = new Date()
     const idx = now.getDay() // 0 Dom ... 6 Sáb
@@ -479,6 +508,15 @@ function Home() {
           <button className="btn btn-lg catlist-trigger" onClick={()=> setShowCats(v=>!v)}>LISTAR CATEGORIAS</button>
           {selectedCategory && <button className="btn outline btn-lg" onClick={()=> setSelectedCategory('')}>LIMPAR FILTRO</button>}
         </div>
+        <div className="field" style={{marginTop:10, maxWidth:360}}>
+          <label className="muted">Ir para a categoria</label>
+          <select value={selectedCategory} onChange={(e)=> setSelectedCategory(e.target.value)}>
+            <option value="">Todas as categorias</option>
+            {categories.filter(cat => !categoriesAvailability[cat.id]).map(cat => (
+              <option key={cat.id} value={cat.id}>{cat.name}</option>
+            ))}
+          </select>
+        </div>
         {showCats && (
           <div className="cats-dropdown" style={{marginTop:10}}>
             {categories.filter(cat => !categoriesAvailability[cat.id]).map(cat => (
@@ -496,7 +534,7 @@ function Home() {
         <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
           <div>
             <div style={{fontWeight:700}}>Que tal usar um cupom?</div>
-            <div className="muted">2 disponíveis</div>
+            <div className="muted">Consulte os cupons ativos</div>
           </div>
 <Button variant="outline" onClick={()=> setShowCoupons(true)}>VER CUPONS</Button>
         </div>
@@ -686,46 +724,48 @@ function ProductModal({ product, choice, setChoice, qty, setQty, obs, setObs, on
 
 function CouponsModal({ onClose }){
   const { coupon, setCoupon } = useContext(CouponContext)
-  const { auth } = useContext(AuthContext)
+  const { establishment } = useContext(EstablishmentContext)
+  const { cart } = useContext(CartContext)
   const [code, setCode] = useState('')
-  const available = [
-    { id:'CUPOM5', label:'5% TERÇA E QUARTA', description:'Cupom disponível apenas terça e quarta.', type:'percent', value:5 },
-    { id:'PRIMEIRA', label:'PRIMEIRA COMPRA', description:'Disponível apenas para novos clientes.', type:'shipping_free', value:0 }
-  ]
-  // Elegibilidade dinâmica
-  const today = new Date().getDay() // 0=Dom,1=Seg,2=Ter,3=Qua,4=Qui,5=Sex,6=Sab
-  const allowWeek = (today === 2 || today === 3)
-  const phoneNorm = normalizePhone(auth?.phone)
-  const isFirstPurchase = (() => {
-    if (!phoneNorm) return false
-    try { return !getOrdersLS().some(o => normalizePhone(o.phone) === phoneNorm) } catch { return false }
-  })()
-  const eligible = { CUPOM5: allowWeek, PRIMEIRA: isFirstPurchase }
-  const applyCode = () => {
-    if (!auth?.registered && !auth?.hasPassword){
-      alert('Para usar cupons, complete seu cadastro com senha.')
-      return
-    }
-    const typed = code.trim()
-    const typedNorm = typed.replace(/\s+/g,'').toLowerCase()
-    const aliasMap = { 'primeiracompra': 'PRIMEIRA', 'primeirocompra': 'PRIMEIRA', '5%terçaequarta': 'CUPOM5', 'cupom5':'CUPOM5' }
-    const mappedId = aliasMap[typedNorm] || null
-    // UX: se nenhum código foi digitado, mas um cupom já está selecionado via rádio, apenas fechamos
+  const [available, setAvailable] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const eid = establishment?.id || getCurrentEstabId()
+  const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    fetchCoupons({ establishmentId: eid })
+      .then((list) => {
+        if (active) setAvailable(list.filter((item) => item.active !== false))
+      })
+      .catch(() => {
+        if (active) setAvailable([])
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [eid])
+
+  const applyCode = async (rawCode) => {
+    const typed = String(rawCode || code || '').trim()
     if (!typed){
       if (coupon){ onClose(); return }
-      alert('Selecione um cupom ou digite um código.');
+      setError('Selecione um cupom ou digite um codigo.')
       return
     }
-    const found = available.find(a => a.id.toLowerCase() === typed.toLowerCase())
-      || (mappedId ? available.find(a => a.id === mappedId) : null)
-      || available.find(a => (a.label||'').replace(/\s+/g,'').toLowerCase() === typedNorm)
-    if (found){
-      if (!eligible[found.id]){
-        if (found.id==='CUPOM5') alert('Este cupom só fica disponível na terça e na quarta.')
-        else if (found.id==='PRIMEIRA') alert('Este cupom é exclusivo para a primeira compra deste número.')
-        return
-      }
-      setCoupon(found); onClose()
+    setLoading(true)
+    setError('')
+    try {
+      const validated = await validateCoupon({ establishmentId: eid, code: typed, subtotal })
+      setCoupon(validated)
+      onClose()
+    } catch (applyError) {
+      setError(applyError?.body?.message || 'Nao foi possivel validar o cupom.')
+    } finally {
+      setLoading(false)
     }
   }
   useEffect(() => {
@@ -742,23 +782,22 @@ function CouponsModal({ onClose }){
         </div>
         <div className="row" style={{gap:8, marginTop:8}}>
           <input placeholder="Código do cupom" value={code} onChange={(e)=> setCode(e.target.value)} />
-            <Button onClick={applyCode}>ADICIONAR</Button>
+            <Button onClick={() => applyCode()} disabled={loading}>ADICIONAR</Button>
         </div>
+        {error && <div className="muted" style={{marginTop:8, color:'#b91c1c'}}>{error}</div>}
         <div style={{marginTop:12, fontWeight:700}}>Cupons disponíveis</div>
         <div>
+          {loading && <div className="muted">Carregando cupons...</div>}
+          {!loading && available.length===0 && <div className="muted">Nenhum cupom ativo no momento.</div>}
           {available.map(a => (
             <label key={a.id} className="option">
-              <input type="radio" name="cupom" checked={coupon?.id===a.id} disabled={!eligible[a.id]} onChange={()=> { if (!auth?.registered && !auth?.hasPassword){ alert('Para usar cupons, complete seu cadastro com senha.'); return } if (!eligible[a.id]){ if (a.id==='CUPOM5') alert('Disponível apenas terça e quarta.'); else alert('Disponível somente para primeira compra.'); return } setCoupon(a) }} />
+              <input type="radio" name="cupom" checked={coupon?.id===a.id} onChange={()=> applyCode(a.code)} />
               <div style={{flex:1}}>
                 <div style={{fontWeight:600}}>{a.label}</div>
-                <div className="muted">{a.description}{!eligible[a.id] ? (a.id==='CUPOM5' ? ' — indisponível hoje' : ' — não é primeira compra') : ''}</div>
-                {a.type==='percent' && <div className="muted">{a.value} %</div>}
-                {a.type==='shipping_free' && (
-                  <>
-                    <div className="muted">ENTREGA GRÁTIS</div>
-                    <div className="muted" style={{fontSize:12}}>O desconto será igual à taxa de entrega.</div>
-                  </>
-                )}
+                <div className="muted">Codigo: {a.code}</div>
+                {a.type==='percentage' && <div className="muted">{a.value} % de desconto</div>}
+                {a.type==='fixed' && <div className="muted">R$ {Number(a.value || 0).toFixed(2)} de desconto</div>}
+                {a.expiresAt && <div className="muted">Expira em {formatOrderDate(a.expiresAt)}</div>}
               </div>
             </label>
           ))}
@@ -778,18 +817,19 @@ function HomeAside({ onOpenCoupons }){
 
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
   const deliveryFee = auth?.address ? (auth.address.fee ?? null) : null
-  const isFreeShipping = coupon?.type === 'shipping_free'
   const discount = coupon ? (
-    coupon.type==='percent' ? subtotal * (coupon.value/100) : (
-      coupon.type==='value' ? coupon.value : (
-        isFreeShipping ? ((deliveryFee || 0)) : 0
-      )
-    )
+    coupon.discountAmount != null
+      ? Number(coupon.discountAmount)
+      : (coupon.type === 'percentage' ? subtotal * (coupon.value / 100) : Number(coupon.value || 0))
   ) : 0
-  const effectiveFee = isFreeShipping ? 0 : (deliveryFee || 0)
+  const effectiveFee = deliveryFee || 0
   const total = subtotal - discount + effectiveFee
 
   const computeEta = (addr) => {
+    if (addr?.etaMinMinutes || addr?.etaMaxMinutes) {
+      if ((addr?.etaMinMinutes || 0) && (addr?.etaMaxMinutes || 0)) return `${addr.etaMinMinutes}-${addr.etaMaxMinutes} min`
+      return `${addr?.etaMaxMinutes || addr?.etaMinMinutes} min`
+    }
     const km = addr?.distanceKm ?? null
     if (km == null) return '1h'
     if (km <= 2) return '30min'
@@ -801,16 +841,6 @@ function HomeAside({ onOpenCoupons }){
   const incQty = (id) => setCart(prev => prev.map(i => i.id===id ? { ...i, qty: i.qty + 1 } : i))
   const decQty = (id) => setCart(prev => prev.map(i => i.id===id ? { ...i, qty: Math.max(1, i.qty - 1) } : i))
   const removeItem = (id) => setCart(prev => prev.filter(i => i.id !== id))
-
-  // Contagem dinâmica de cupons disponíveis (regras)
-  const today = new Date().getDay()
-  const allowWeek = (today === 2 || today === 3)
-  const phoneNorm = normalizePhone(auth?.phone)
-  const firstAvailable = (() => {
-    if (!phoneNorm) return false
-    try { return !getOrdersLS().some(o => normalizePhone(o.phone) === phoneNorm) } catch { return false }
-  })()
-  const availableCount = (allowWeek ? 1 : 0) + (firstAvailable ? 1 : 0)
 
   return (
     <aside className="feed-aside">
@@ -919,14 +949,9 @@ function HomeAside({ onOpenCoupons }){
 
         <div className="price-box" style={{marginTop:10}}>
           <div className="price-row"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
-          <div className="price-row"><span>{isFreeShipping ? 'Desconto (frete grátis)' : 'Desconto'}</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
+          <div className="price-row"><span>Desconto</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
           <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${effectiveFee.toFixed(2)}` : '—'}</span></div>
           <div className="price-row total"><span>Total</span><span>R$ {total.toFixed(2)}</span></div>
-          {isFreeShipping && (
-            <div className="muted" style={{marginTop:6, fontSize:12}}>
-              Cupom PRIMEIRA COMPRA aplicado: desconto = taxa de entrega ({deliveryFee!=null? `R$ ${(deliveryFee||0).toFixed(2)}`:'R$ 0,00'}), taxa fica R$ 0,00.
-            </div>
-          )}
         </div>
 
         {/* Cupom */}
@@ -938,7 +963,7 @@ function HomeAside({ onOpenCoupons }){
               </svg>
               <div>
                 <div style={{fontWeight:700}}>{coupon ? (coupon.label || 'Cupom aplicado') : 'Que tal usar um cupom?'}</div>
-                <div className="muted">{coupon ? 'Cupom aplicado' : (availableCount===1 ? '1 disponível' : `${availableCount} disponíveis`)}</div>
+                <div className="muted">{coupon ? 'Cupom aplicado' : 'Consultar cupons ativos'}</div>
               </div>
             </div>
             <button className="btn outline btn-sm" onClick={onOpenCoupons}>›</button>
@@ -1082,18 +1107,19 @@ function Sacola(){
 
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
   const deliveryFee = auth?.address ? (auth.address.fee ?? null) : null
-  const isFreeShipping = coupon?.type === 'shipping_free'
   const discount = coupon ? (
-    coupon.type==='percent' ? subtotal * (coupon.value/100) : (
-      coupon.type==='value' ? coupon.value : (
-        isFreeShipping ? ((deliveryFee || 0)) : 0
-      )
-    )
+    coupon.discountAmount != null
+      ? Number(coupon.discountAmount)
+      : (coupon.type === 'percentage' ? subtotal * (coupon.value / 100) : Number(coupon.value || 0))
   ) : 0
-  const effectiveFee = isFreeShipping ? 0 : (deliveryFee || 0)
+  const effectiveFee = deliveryFee || 0
   const total = subtotal - discount + effectiveFee
 
   const computeEta = (addr) => {
+    if (addr?.etaMinMinutes || addr?.etaMaxMinutes) {
+      if ((addr?.etaMinMinutes || 0) && (addr?.etaMaxMinutes || 0)) return `${addr.etaMinMinutes}-${addr.etaMaxMinutes} min`
+      return `${addr?.etaMaxMinutes || addr?.etaMinMinutes} min`
+    }
     const km = addr?.distanceKm ?? null
     if (km == null) return '1h'
     if (km <= 2) return '30min'
@@ -1204,14 +1230,9 @@ function Sacola(){
 
             <div className="price-box">
               <div className="price-row"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
-              <div className="price-row"><span>{isFreeShipping ? 'Desconto (frete grátis)' : 'Desconto'}</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
-              <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${(isFreeShipping?0:(deliveryFee||0)).toFixed(2)}` : '—'}</span></div>
+              <div className="price-row"><span>Desconto</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
+              <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${(deliveryFee||0).toFixed(2)}` : '—'}</span></div>
               <div className="price-row total"><span>TOTAL</span><span>R$ {total.toFixed(2)}</span></div>
-              {isFreeShipping && (
-                <div className="muted" style={{marginTop:6, fontSize:12}}>
-                  Cupom PRIMEIRA COMPRA: desconto = taxa de entrega ({deliveryFee!=null? `R$ ${(deliveryFee||0).toFixed(2)}`:'R$ 0,00'}), taxa fica R$ 0,00.
-                </div>
-              )}
             </div>
 
             {/* Banner indicando existência de cupom */}
@@ -1359,86 +1380,20 @@ function CepModal({ onClose }){
       if (data?.erro) { setError('CEP não encontrado.'); setResult(null); return }
       const city = (data.localidade || '').trim()
       const uf = (data.uf || '').trim()
-      const normalize = (s) => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase()
-      const allowed = (establishment?.deliveryCities || []).find(c => {
-        const matchCity = normalize(c.city) === normalize(city)
-        const matchUf = !c.uf || normalize(c.uf) === normalize(uf)
-        return c.allowed && matchCity && matchUf
+      setResult({
+        street: data.logradouro,
+        neighborhood: data.bairro,
+        city,
+        uf,
+        zipcode: formatCep(digits),
+        fee: null,
       })
-      if (!allowed) {
-        setError('No momento não entregamos na sua região.')
-        setResult(null)
-        return
-      }
-      setResult({ street: data.logradouro, neighborhood: data.bairro, city, uf, cep: formatCep(digits), fee: allowed.fee })
     } catch {
       setError('Falha ao consultar o CEP. Tente novamente.')
       setResult(null)
     } finally {
       setLoading(false)
     }
-  }
-
-  // --- Geocodificação e cálculo de distância ---
-  const getBaseQuery = () => {
-    const b = establishment?.baseAddress || {}
-    const parts = [b.street, b.number, b.neighborhood, (b.city || establishment?.city), (b.uf || establishment?.uf)].filter(Boolean)
-    return parts.join(', ')
-  }
-  const geocode = async (query) => {
-    if (!query) return null
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=1`
-      const resp = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } })
-      const json = await resp.json()
-      if (!Array.isArray(json) || json.length === 0) return null
-      return { lat: parseFloat(json[0].lat), lon: parseFloat(json[0].lon) }
-    } catch {
-      return null
-    }
-  }
-  const toRad = (v) => v * Math.PI / 180
-  const haversineKm = (lat1, lon1, lat2, lon2) => {
-    const R = 6371
-    const dLat = toRad(lat2 - lat1)
-    const dLon = toRad(lon2 - lon1)
-    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    return R * c
-  }
-  const getFeeByDistance = (km) => {
-    const table = establishment?.deliveryFeeTable
-    if (!table || !km || !isFinite(km)) return null
-    for (const band of (table.bands || [])) {
-      if (km >= band.min && km <= band.max) return band.fee
-    }
-    const ikm = Math.round(km)
-    if (table.kmFees && table.kmFees[ikm] != null) return table.kmFees[ikm]
-    // regra para acima de X km
-    if (table.aboveKm != null && table.perKmAbove != null && ikm > table.aboveKm) {
-      let baseFee = table.baseFeeAtAboveKm
-      if (baseFee == null) {
-        // tenta derivar base a partir do maior km conhecido
-        const knownKms = Object.keys(table.kmFees || {}).map(n=> parseInt(n,10)).filter(n=> !isNaN(n)).sort((a,b)=> a-b)
-        const maxKnown = knownKms.length ? knownKms[knownKms.length-1] : null
-        if (maxKnown != null && table.kmFees[maxKnown] != null) {
-          baseFee = table.kmFees[maxKnown] + (table.aboveKm - maxKnown) * table.perKmAbove
-        }
-      }
-      if (baseFee != null) return baseFee + (ikm - table.aboveKm) * table.perKmAbove
-    }
-    return null
-  }
-  const computeDistanceAndFee = async (addr) => {
-    const baseQuery = getBaseQuery()
-    const deliverQuery = [addr.street, addr.number, addr.neighborhood, addr.city, addr.uf].filter(Boolean).join(', ')
-    const base = await geocode(baseQuery)
-    const dest = await geocode(deliverQuery)
-    if (!base || !dest) return addr
-    const km = haversineKm(base.lat, base.lon, dest.lat, dest.lon)
-    const fee = getFeeByDistance(km)
-    // Fallback: se não houver taxa por distância, mantenha a taxa já definida (cidade permitida)
-    return { ...addr, distanceKm: Math.round(km * 10) / 10, fee: fee ?? addr.fee }
   }
 
   const salvar = async () => {
@@ -1448,14 +1403,36 @@ function CepModal({ onClose }){
     if (!result.neighborhood?.trim()) { setError('Informe o bairro.'); return }
     if (!result.refPoint?.trim()) { setError('Informe um ponto de referência.'); return }
     if (!result.city?.trim() || !result.uf?.trim()) { setError('Informe cidade e estado.'); return }
-    let addr = { ...result, number: number.trim(), complement: complement.trim(), label: `${result.street}, ${number} - ${result.neighborhood} • ${result.city}/${result.uf}`, fee: result.fee }
-    addr = await computeDistanceAndFee(addr)
-    const saved = Array.isArray(auth?.savedAddresses) ? auth.savedAddresses : []
-    const nextSaved = [addr, ...saved].slice(0,3)
-    setAuth({ ...auth, deliveryType:'entrega', address: addr, savedAddresses: nextSaved })
-    onClose()
-    const event = (window.lastCepModalDetail || {}).onDone
-    if (typeof event === 'function') event(addr)
+    const addrBase = {
+      ...result,
+      number: number.trim(),
+      complement: complement.trim(),
+      reference: (result.refPoint || '').trim(),
+      label: `${result.street}, ${number} - ${result.neighborhood} • ${result.city}/${result.uf}`,
+    }
+    try {
+      const quote = await fetchDeliveryQuote(establishment?.id || getCurrentEstabId(), {
+        zipcode: addrBase.zipcode || cep,
+        neighborhood: addrBase.neighborhood,
+        city: addrBase.city,
+        uf: addrBase.uf,
+      })
+      const addr = {
+        ...addrBase,
+        fee: quote?.fee ?? 0,
+        etaMinMinutes: quote?.eta_min_minutes ?? 0,
+        etaMaxMinutes: quote?.eta_max_minutes ?? 0,
+        deliveryRuleLabel: quote?.label || null,
+      }
+      const saved = Array.isArray(auth?.savedAddresses) ? auth.savedAddresses : []
+      const nextSaved = [addr, ...saved].slice(0,3)
+      setAuth({ ...auth, deliveryType:'entrega', address: addr, savedAddresses: nextSaved })
+      onClose()
+      const event = (window.lastCepModalDetail || {}).onDone
+      if (typeof event === 'function') event(addr)
+    } catch (quoteError) {
+      setError(quoteError?.body?.message || 'Nao foi possivel calcular a entrega para este endereco.')
+    }
   }
 
   useEffect(() => {
@@ -1830,15 +1807,12 @@ function Checkout(){
   const { establishment } = useContext(EstablishmentContext)
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
   const baseFee = auth?.address?.fee ?? 0
-  const isFreeShipping = coupon?.type === 'shipping_free'
   const discount = coupon ? (
-    coupon.type==='percent' ? subtotal * (coupon.value/100) : (
-      coupon.type==='value' ? coupon.value : (
-        isFreeShipping ? baseFee : 0
-      )
-    )
+    coupon.discountAmount != null
+      ? Number(coupon.discountAmount)
+      : (coupon.type === 'percentage' ? subtotal * (coupon.value / 100) : Number(coupon.value || 0))
   ) : 0
-  const fee = isFreeShipping ? 0 : baseFee
+  const fee = baseFee
   const total = subtotal - discount + fee
 
   const [paymentMethod, setPaymentMethod] = useState('Pix')
@@ -1849,6 +1823,14 @@ function Checkout(){
   const [orderNotes, setOrderNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+  const [estStatus, setEstStatus] = useState(null)
+  const eid = establishment?.id || getCurrentEstabId() || 'default'
+
+  useEffect(() => {
+    fetchEstablishmentStatus(eid)
+      .then((status) => setEstStatus(status))
+      .catch(() => setEstStatus(null))
+  }, [eid])
 
   const parseAmount = (str) => {
     const digits = (str || '').replace(/\D/g,'')
@@ -1883,10 +1865,19 @@ function Checkout(){
     if (stage === 'pagamento') {
       setStage('confirmacao')
     } else {
-      const eid = (establishment?.id) || getCurrentEstabId() || 'default'
       const existingDraft = getCheckoutDraft(eid)
       const clientOrderId = existingDraft?.client_order_id || createClientOrderId()
       const hasAddress = !!(auth?.address && (auth.address.street || auth.address.number || auth.address.city))
+      if (estStatus && estStatus.accepts_orders === false) {
+        const message = estStatus.label || 'A loja esta fechada no momento.'
+        setSubmitError(message)
+        showToast({
+          titulo: 'Loja fechada',
+          mensagem: message,
+          tipo: 'warning',
+        })
+        return
+      }
       const payload = {
         client_order_id: clientOrderId,
         establishment_id: eid,
@@ -1902,7 +1893,7 @@ function Checkout(){
         discount,
         fee,
         total,
-        coupon: (coupon ? { id: coupon.id, label: coupon.label, type: coupon.type, value: coupon.value } : null),
+        coupon: (coupon ? { id: coupon.id, code: coupon.code, label: coupon.label, discount_type: coupon.type, discount_value: coupon.value } : null),
         items: cart.map(i => ({
           id: i.id,
           product_id: i.productId,
@@ -1962,6 +1953,12 @@ function Checkout(){
           <div className="track"><div className="bar" style={{width: stage==='confirmacao' ? '100%' : '75%'}} /></div>
         </div>
       </div>
+      {estStatus && estStatus.accepts_orders === false && (
+        <div className="section-card" style={{border:'1px solid rgba(177, 90, 90, 0.25)', background:'#fff8f8'}}>
+          <div style={{fontWeight:700, color:'#8b1e1e'}}>Loja indisponivel para novos pedidos</div>
+          <div className="muted" style={{marginTop:6}}>{estStatus.label}</div>
+        </div>
+      )}
       {stage==='pagamento' ? (
         <>
           <div className="section-card">
@@ -2068,7 +2065,7 @@ function Checkout(){
       <div className="muted" style={{textAlign:'center', marginTop:12}}>PAGAR COM DUAS FORMAS DE PAGAMENTO</div>
 
       <div style={{position:'fixed', left:0, right:0, bottom:68, padding:'0 16px'}}>
-            <Button size="lg" block disabled={submitting} onClick={continueCheckout}>
+            <Button size="lg" block disabled={submitting || (stage==='confirmacao' && estStatus?.accepts_orders === false)} onClick={continueCheckout}>
               {stage==='pagamento' ? 'Continuar' : (submitting ? 'Confirmando pedido...' : 'Enviar pedido')}
             </Button>
         <div className="row" style={{justifyContent:'space-between', marginTop:8}}>
@@ -2137,22 +2134,24 @@ function Checkout(){
 }
 
 function Promotions(){
-  const promotions = [
-  { id:'promo-bolo-macaxeira', productId:'bolo-macaxeira', name:'Bolo de macaxeira com tartalete', image: DEFAULT_PRODUCT_PLACEHOLDER, description:'Aproveite! Promoção por tempo limitado.', originalPrice: 35.0, promoPrice: 25.0 },
-  { id:'promo-bolo-coco', productId:'bolo-coco', name:'Bolo de coco', image: DEFAULT_PRODUCT_PLACEHOLDER, description:'Tradicional e delicioso.', originalPrice: 25.0, promoPrice: 20.0 }
-  ]
-  const [showEmpty, setShowEmpty] = useState(promotions.length === 0)
-  const [selected, setSelected] = useState(null)
+  const eid = getCurrentEstabId()
+  const promotions = (getProductsLS() || mockProducts)
+    .filter((product) => product.available && product.promoActive && product.promoPrice != null)
+    .map((product) => ({
+      ...product,
+      originalPrice: Number(product.basePrice || 0),
+      promoPrice: Number(product.promoPrice || 0),
+      discountPercent: product.basePrice > 0
+        ? Math.max(0, Math.round((1 - (Number(product.promoPrice || 0) / Number(product.basePrice || 1))) * 100))
+        : 0,
+    }))
   return (
     <div className="container">
       <h2 className="page-title">Promoções</h2>
       {promotions.length > 0 ? (
         <div className="grid products-grid">
           {promotions.map(p => (
-            <div key={p.id} className="card" onClick={()=> {
-              const prod = mockProducts.find(mp=> mp.id === p.productId)
-              if (prod) setSelected(prod)
-            }}>
+            <div key={p.id} className="card">
               <img src={p.image} alt={p.name} loading="lazy" decoding="async" />
               <div className="info">
                 <div className="row product-header" style={{alignItems:'center'}}>
@@ -2161,9 +2160,13 @@ function Promotions(){
                 </div>
                 <div className="row" style={{justifyContent:'space-between', alignItems:'center', marginTop:6}}>
                   <div className="muted"><span className="price-old">R$ {p.originalPrice.toFixed(2)}</span></div>
-                  <span className="badge green">Em promoção</span>
+                  <span className="badge green">{p.discountPercent}% OFF</span>
                 </div>
-                <div className="muted" style={{marginTop:6}}>{p.description}</div>
+                <div className="muted" style={{marginTop:6}}>{p.descShort || 'Oferta ativa no cardapio.'}</div>
+                <div className="muted" style={{marginTop:6}}>Categoria: {(getCategoriesLS() || []).find((cat) => cat.id === p.category)?.name || 'Promocao'}</div>
+                <div style={{marginTop:10}}>
+                  <Link to={`/?categoria=${encodeURIComponent(p.category || '')}`}>Ver no cardapio</Link>
+                </div>
               </div>
             </div>
           ))}
@@ -2173,24 +2176,6 @@ function Promotions(){
           <div className="muted">Nenhuma promoção cadastrada no momento.</div>
           <div className="muted" style={{marginTop:6}}>Volte mais tarde para aproveitar ofertas.</div>
         </div>
-      )}
-
-      {showEmpty && (
-        <div className="modal-backdrop" onClick={()=> setShowEmpty(false)}>
-          <div className="modal simple" onClick={(e)=> e.stopPropagation()}>
-            <div className="row">
-              <h3 style={{margin:0}}>Promoções</h3>
-              <button className="close" onClick={()=> setShowEmpty(false)}>×</button>
-            </div>
-            <div style={{display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', padding:'24px 0'}}>
-              <div className="empty-icon" />
-              <div style={{fontWeight:700, marginTop:12}}>Nenhuma promoção encontrada</div>
-            </div>
-          </div>
-        </div>
-      )}
-      {selected && (
-        <ProductModal product={selected} onClose={()=> setSelected(null)} />
       )}
       <Footer />
       <Tabs />
@@ -2472,6 +2457,47 @@ async function updateOrderStatus(id, status){
   return order
 }
 
+const ORDER_NEXT_STATUSES = {
+  [ORDER_STATUSES.RECEBIDO]: [ORDER_STATUSES.EM_PREPARO, ORDER_STATUSES.CANCELADO],
+  [ORDER_STATUSES.EM_PREPARO]: [ORDER_STATUSES.PRONTO, ORDER_STATUSES.CANCELADO],
+  [ORDER_STATUSES.PRONTO]: [ORDER_STATUSES.ENTREGUE, ORDER_STATUSES.FINALIZADO, ORDER_STATUSES.CANCELADO],
+  [ORDER_STATUSES.ENTREGUE]: [],
+  [ORDER_STATUSES.FINALIZADO]: [],
+  [ORDER_STATUSES.CANCELADO]: [],
+}
+
+function getNextOrderStatuses(status){
+  return ORDER_NEXT_STATUSES[status] || []
+}
+
+function buildEstablishmentPayload(establishment){
+  return {
+    id: establishment?.id || '',
+    name: establishment?.name || '',
+    city: establishment?.city || '',
+    uf: establishment?.uf || '',
+    support_contact: Array.isArray(establishment?.phones) ? (establishment.phones[0] || '') : (establishment?.support_contact || ''),
+    instagram: establishment?.instagram || '',
+    avatar_url: establishment?.avatarImage || establishment?.avatar_url || null,
+    cover_url: establishment?.coverImage || establishment?.cover_url || null,
+    hours: establishment?.hours || [],
+    payment_methods: establishment?.payments || establishment?.paymentMethods || [],
+    base_address: establishment?.baseAddress || null,
+    delivery_rules: establishment?.deliveryRules || [],
+    theme: {
+      brandPrimary: establishment?.brandPrimary,
+      brandAccent: establishment?.brandAccent,
+      brandBg: establishment?.brandBg,
+      brandText: establishment?.brandText,
+      brandMuted: establishment?.brandMuted,
+    },
+  }
+}
+
+async function persistEstablishmentConfig(establishment){
+  await saveEstablishment(buildEstablishmentPayload(establishment))
+}
+
 function normalizePhone(raw){
   try {
     const digits = String(raw||'').replace(/\D/g,'')
@@ -2728,6 +2754,7 @@ function AdminOrders(){
   const [search, setSearch] = useState('')
   const [showDetails, setShowDetails] = useState(null)
   const prevIdsRef = useRef({})
+  const pollTimeoutRef = useRef(null)
   const statuses = [ORDER_STATUSES.RECEBIDO, ORDER_STATUSES.EM_PREPARO, ORDER_STATUSES.PRONTO, ORDER_STATUSES.ENTREGUE, ORDER_STATUSES.FINALIZADO, ORDER_STATUSES.CANCELADO]
   const setStatus = async (id, st) => {
     try {
@@ -2753,10 +2780,11 @@ function AdminOrders(){
         if (!active) return
         setOrders(list)
         const soundEnabled = (localStorage.getItem(`adminSoundEnabled_${eid}`) || 'true') !== 'false'
+        const currentIds = {}
         ;(list || []).forEach(o => {
+          currentIds[o.id] = true
           const known = !!prevIdsRef.current[o.id]
           if (!known){
-            prevIdsRef.current[o.id] = true
             const dedupKey = `soundPlayed_${eid}_${o.id}`
             if (soundEnabled && localStorage.getItem(dedupKey)!=='true'){
               let played = false
@@ -2772,7 +2800,7 @@ function AdminOrders(){
               }
               localStorage.setItem(dedupKey,'true')
             }
-            showToast({ titulo: '🧁 Novo Pedido Recebido!', mensagem: `Pedido #${o.id} - ${o.name||o.phone}`, tipo: 'info', duracao: 7000 })
+            showToast({ titulo: 'Novo pedido recebido', mensagem: `Pedido #${o.id} - ${o.name||o.phone}`, tipo: 'info', duracao: 7000 })
             try {
               const list = JSON.parse(localStorage.getItem(`notifications_${eid}`) || '[]')
               list.push({ id: Date.now(), tipo:'novo_pedido', destinatario:'admin', pedido_id: o.id, mensagem: `Pedido #${o.id} de ${o.name||o.phone}`, status:'não lida', data_envio: new Date().toISOString() })
@@ -2780,11 +2808,16 @@ function AdminOrders(){
             } catch(e) {}
           }
         })
+        prevIdsRef.current = currentIds
+        const hasFreshOrders = (list || []).some((order) => order.status === ORDER_STATUSES.RECEBIDO)
+        pollTimeoutRef.current = setTimeout(load, hasFreshOrders ? 5000 : 15000)
       } catch {}
     }
     load()
-    const id = setInterval(load, 10000)
-    return ()=> { active = false; clearInterval(id) }
+    return ()=> {
+      active = false
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
+    }
   }, [eid])
   const timeAgo = (createdAt) => {
     try {
@@ -2877,6 +2910,7 @@ function AdminOrders(){
                 <div>
                   <div style={{fontWeight:700}}>Pedido N° {o.id}</div>
                   <div className="muted">Cliente: {o.name ? `${o.name} • ${o.phone}` : o.phone}</div>
+                  <div className="muted">Criado em {formatOrderDate(o.createdAt)}</div>
                   <div className="muted">{timeAgo(o.createdAt)}</div>
                 </div>
                 <div style={{textAlign:'right'}}>
@@ -2886,12 +2920,15 @@ function AdminOrders(){
                   </div>
                 </div>
               </div>
+              <div className="menu-list" style={{marginTop:10}}>
+                <div className="muted">Pagamento: {o.paymentMethod || '—'}</div>
+                <div className="muted">Observações: {o.notes || 'Sem observações'}</div>
+                <div className="muted">Itens: {(o.items || []).map((item) => `${item.qty}x ${item.name}${item.obs ? ` (${item.obs})` : ''}`).join(' • ') || '—'}</div>
+              </div>
               <div style={{marginTop:8, display:'flex', gap:8, flexWrap:'wrap'}}>
-                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.EM_PREPARO)}>🍰 Em preparo</button>
-                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.PRONTO)}>📦 Pronto</button>
-                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.ENTREGUE)}>🛵 Entregue</button>
-                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.FINALIZADO)}>🎉 Finalizado</button>
-                <button className="btn outline" onClick={()=> setStatus(o.id, ORDER_STATUSES.CANCELADO)}>❌ Cancelar</button>
+                {getNextOrderStatuses(o.status).map(st => (
+                  <button key={st} className="btn outline" onClick={()=> setStatus(o.id, st)}>{getOrderStatusLabel(st)}</button>
+                ))}
                 <button className="btn outline" onClick={()=> printComanda(o)}>🧾 Comanda</button>
                 <button className="btn" onClick={()=> { try { localStorage.setItem(`order_seen_${eid}_${o.id}`,'true') } catch(e) {}; setShowDetails(o) }}>Ver Detalhes</button>
               </div>
@@ -2922,7 +2959,10 @@ function AdminOrderDetailsModal({ order, onClose }){
           <div style={{fontWeight:700}}>Itens</div>
           {(order.items||[]).map(it => (
             <div key={it.id} className="row" style={{marginTop:6}}>
-              <div>{it.qty}x {it.name} {it.choice||''}</div>
+              <div>
+                {it.qty}x {it.name} {it.choice||''}
+                {it.obs && <div className="muted" style={{marginTop:2}}>Obs: {it.obs}</div>}
+              </div>
               <div>R$ {fmt((it.unitPrice||0)* (it.qty||0))}</div>
             </div>
           ))}
@@ -2936,6 +2976,7 @@ function AdminOrderDetailsModal({ order, onClose }){
             <div>Total</div><div>R$ {fmt(order.total)}</div>
           </div>
           <div className="muted" style={{marginTop:6}}>Pagamento: {order.paymentMethod}</div>
+          <div className="muted" style={{marginTop:6}}>Observações do pedido: {order.notes || 'Sem observações'}</div>
         </div>
 
         <div className="section-card">
@@ -3368,42 +3409,93 @@ function AdminCoupons(){
   const eid = getCurrentEstabId()
   const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
-  const [coupons, setCoupons] = useState(()=> { try { return JSON.parse(localStorage.getItem(`coupons_${eid}`) || '[]') } catch(e){ return [] } })
+  const [coupons, setCoupons] = useState([])
   const [code, setCode] = useState('')
-  const [type, setType] = useState('percent')
+  const [type, setType] = useState('percentage')
   const [value, setValue] = useState('')
   const [active, setActive] = useState(true)
-  const add = () => {
-    const v = parseFloat(value || '0')
-    const c = { id: `${Date.now()}`, code, type, value: v, active }
-    const list = [...coupons, c]
-    setCoupons(list)
-    localStorage.setItem(`coupons_${eid}`, JSON.stringify(list))
-    setCode(''); setValue(''); setType('percent'); setActive(true)
+  const [expiresAt, setExpiresAt] = useState('')
+  const [usageLimit, setUsageLimit] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const loadCoupons = async () => {
+    setLoading(true)
+    try {
+      const list = await fetchCoupons({ establishmentId: eid })
+      setCoupons(list)
+    } catch {
+      setCoupons([])
+    } finally {
+      setLoading(false)
+    }
   }
-  const toggle = (id) => { const list = coupons.map(c=> c.id===id ? { ...c, active: !c.active } : c); setCoupons(list); localStorage.setItem(`coupons_${eid}`, JSON.stringify(list)) }
-  const remove = (id) => { const list = coupons.filter(c=> c.id!==id); setCoupons(list); localStorage.setItem(`coupons_${eid}`, JSON.stringify(list)) }
+
+  useEffect(() => {
+    loadCoupons()
+  }, [eid])
+
+  const add = async () => {
+    const v = parseFloat(String(value || '0').replace(',', '.'))
+    await createCoupon({
+      establishment_id: eid,
+      code,
+      discount_type: type,
+      discount_value: v,
+      active,
+      expires_at: expiresAt || null,
+      usage_limit: usageLimit || null,
+    })
+    setCode('')
+    setValue('')
+    setType('percentage')
+    setActive(true)
+    setExpiresAt('')
+    setUsageLimit('')
+    loadCoupons()
+  }
+
+  const toggle = async (coupon) => {
+    await updateCoupon(coupon.id, {
+      establishment_id: eid,
+      active: !coupon.active,
+    })
+    loadCoupons()
+  }
+
+  const remove = async (id) => {
+    await deleteCoupon(id)
+    loadCoupons()
+  }
   return (
     <div className="container">
       <AdminHeader title="Cupons" />
       <div className="section-card">
         <div className="row" style={{gap:12}}>
           <div className="field" style={{flex:1}}><label className="muted">Código</label><input value={code} onChange={(e)=> setCode(e.target.value)} /></div>
-          <div className="field" style={{width:180}}><label className="muted">Tipo</label><select value={type} onChange={(e)=> setType(e.target.value)}><option value="percent">Percentual</option><option value="value">Valor</option></select></div>
+          <div className="field" style={{width:180}}><label className="muted">Tipo</label><select value={type} onChange={(e)=> setType(e.target.value)}><option value="percentage">Percentual</option><option value="fixed">Valor</option></select></div>
           <div className="field" style={{width:180}}><label className="muted">Valor</label><input value={value} onChange={(e)=> setValue(e.target.value)} /></div>
           <div className="field" style={{width:180}}><label className="muted">Ativo</label><input type="checkbox" checked={active} onChange={(e)=> setActive(e.target.checked)} /></div>
         </div>
-        <div style={{marginTop:8}}><button className="btn" disabled={!code.trim()} onClick={add}>Adicionar</button></div>
+        <div className="row" style={{gap:12, marginTop:8}}>
+          <div className="field" style={{width:220}}><label className="muted">Expira em</label><input type="datetime-local" value={expiresAt} onChange={(e)=> setExpiresAt(e.target.value)} /></div>
+          <div className="field" style={{width:180}}><label className="muted">Limite de uso</label><input value={usageLimit} onChange={(e)=> setUsageLimit(e.target.value)} /></div>
+        </div>
+        <div style={{marginTop:8}}><button className="btn" disabled={!code.trim() || loading} onClick={add}>Adicionar</button></div>
       </div>
       <div className="section-card">
         <div style={{fontWeight:700, marginBottom:6}}>Cupons cadastrados</div>
+        {loading && <div className="muted">Carregando...</div>}
         {coupons.length===0 ? <div className="muted">Nenhum cupom cadastrado</div> : (
           <div className="menu-list">
             {coupons.map(c=> (
               <div key={c.id} className="row" style={{justifyContent:'space-between'}}>
-                <div>{c.code} • {c.type==='percent'? `${c.value}%`:`R$ ${c.value.toFixed(2)}`}</div>
+                <div>
+                  {c.code} • {c.type==='percentage'? `${c.value}%`:`R$ ${Number(c.value || 0).toFixed(2)}`}
+                  <div className="muted">Usos: {c.usageCount || 0}{c.usageLimit != null ? ` / ${c.usageLimit}` : ''}</div>
+                  {c.expiresAt && <div className="muted">Expira em {formatOrderDate(c.expiresAt)}</div>}
+                </div>
                 <div style={{display:'flex', gap:8}}>
-                  <button className="btn outline" onClick={()=> toggle(c.id)}>{c.active? 'Desativar':'Ativar'}</button>
+                  <button className="btn outline" onClick={()=> toggle(c)}>{c.active? 'Desativar':'Ativar'}</button>
                   <button className="btn outline" onClick={()=> remove(c.id)}>Remover</button>
                 </div>
               </div>
@@ -3982,44 +4074,97 @@ function AdminCities(){
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
   const { establishment, setEstablishment } = useContext(EstablishmentContext)
   const [cityInput, setCityInput] = useState('')
-  const known = ['Petrolina','Juazeiro','Lagoa Grande','Sobradinho','Casa Nova']
-  const addCity = () => {
-    const name = cityInput.trim()
-    if (!name) return
-    const prev = establishment?.deliveryCities || []
-    const exists = prev.some(c => c.city.toLowerCase() === name.toLowerCase())
-    if (exists) { setCityInput(''); return }
-    const next = [...prev, { city:name, uf:'', allowed:true, fee: 0 }]
-    setEstablishment({ ...(establishment || {}), deliveryCities: next })
+  const [ufInput, setUfInput] = useState('')
+  const [neighborhoodInput, setNeighborhoodInput] = useState('')
+  const [zipcodeInput, setZipcodeInput] = useState('')
+  const [feeInput, setFeeInput] = useState('')
+  const [etaMin, setEtaMin] = useState('30')
+  const [etaMax, setEtaMax] = useState('50')
+  const rules = establishment?.deliveryRules || []
+
+  const addRule = async () => {
+    if (!cityInput.trim() && !neighborhoodInput.trim() && !zipcodeInput.trim()) return
+    const next = [...rules, {
+      id: `rule_${Date.now()}`,
+      label: neighborhoodInput.trim() || zipcodeInput.trim() || cityInput.trim(),
+      city: cityInput.trim(),
+      uf: ufInput.trim().toUpperCase(),
+      neighborhood: neighborhoodInput.trim(),
+      zipcode_prefix: zipcodeInput.replace(/\D/g, '').slice(0, 8),
+      fee: Number(String(feeInput || '0').replace(',', '.')) || 0,
+      eta_min_minutes: parseInt(etaMin || '0', 10) || 0,
+      eta_max_minutes: parseInt(etaMax || '0', 10) || 0,
+      active: true,
+    }]
+    const merged = { ...(establishment || {}), deliveryRules: next }
+    setEstablishment(merged)
+    await persistEstablishmentConfig(merged)
     setCityInput('')
+    setUfInput('')
+    setNeighborhoodInput('')
+    setZipcodeInput('')
+    setFeeInput('')
+    setEtaMin('30')
+    setEtaMax('50')
   }
-  const removeCity = (name) => {
-    const prev = establishment?.deliveryCities || []
-    const next = prev.filter(c => c.city !== name)
-    setEstablishment({ ...(establishment || {}), deliveryCities: next })
+
+  const removeRule = async (ruleId) => {
+    const next = rules.filter((rule) => rule.id !== ruleId)
+    const merged = { ...(establishment || {}), deliveryRules: next }
+    setEstablishment(merged)
+    await persistEstablishmentConfig(merged)
   }
   return (
     <div className="container">
-      <AdminHeader title="Cidades de entrega" />
+      <AdminHeader title="Areas de entrega" />
       <div className="section-card">
-        <div className="field" style={{maxWidth:420}}>
-          <label className="muted">Digite o nome da cidade</label>
-          <input list="cities" placeholder="Ex: Petrolina" value={cityInput} onChange={(e)=> setCityInput(e.target.value)} />
-          <datalist id="cities">
-            {known.map(c=> <option key={c} value={c} />)}
-          </datalist>
+        <div className="row" style={{gap:12}}>
+          <div className="field" style={{flex:1}}>
+            <label className="muted">Cidade</label>
+            <input placeholder="Ex: Petrolina" value={cityInput} onChange={(e)=> setCityInput(e.target.value)} />
+          </div>
+          <div className="field" style={{width:100}}>
+            <label className="muted">UF</label>
+            <input placeholder="PE" value={ufInput} onChange={(e)=> setUfInput(e.target.value)} />
+          </div>
+          <div className="field" style={{flex:1}}>
+            <label className="muted">Bairro</label>
+            <input placeholder="Centro" value={neighborhoodInput} onChange={(e)=> setNeighborhoodInput(e.target.value)} />
+          </div>
         </div>
-        <div style={{marginTop:8}}><button className="btn" onClick={addCity}>Adicionar</button></div>
+        <div className="row" style={{gap:12, marginTop:8}}>
+          <div className="field" style={{width:180}}>
+            <label className="muted">Prefixo do CEP</label>
+            <input placeholder="56300" value={zipcodeInput} onChange={(e)=> setZipcodeInput(e.target.value)} />
+          </div>
+          <div className="field" style={{width:160}}>
+            <label className="muted">Taxa</label>
+            <input placeholder="8,00" value={feeInput} onChange={(e)=> setFeeInput(e.target.value)} />
+          </div>
+          <div className="field" style={{width:160}}>
+            <label className="muted">ETA min</label>
+            <input value={etaMin} onChange={(e)=> setEtaMin(e.target.value)} />
+          </div>
+          <div className="field" style={{width:160}}>
+            <label className="muted">ETA max</label>
+            <input value={etaMax} onChange={(e)=> setEtaMax(e.target.value)} />
+          </div>
+        </div>
+        <div style={{marginTop:8}}><button className="btn" onClick={addRule}>Adicionar area</button></div>
       </div>
       <div className="section-card">
-        <div style={{fontWeight:700}}>Cidades cadastradas</div>
+        <div style={{fontWeight:700}}>Areas cadastradas</div>
         <div className="menu-list">
-          {(establishment?.deliveryCities || []).map(c => (
-            <div key={c.city} className="row" style={{justifyContent:'space-between'}}>
-              <div>{c.city} {c.uf && `• ${c.uf}`}</div>
-              <button className="btn outline" onClick={()=> removeCity(c.city)}>Remover</button>
+          {rules.map(rule => (
+            <div key={rule.id} className="row" style={{justifyContent:'space-between'}}>
+              <div>
+                {(rule.neighborhood || 'Sem bairro')} • {[rule.city, rule.uf].filter(Boolean).join('/')}
+                <div className="muted">CEP: {rule.zipcode_prefix || '—'} • Taxa: R$ {Number(rule.fee || 0).toFixed(2)} • ETA: {rule.eta_min_minutes || 0}-{rule.eta_max_minutes || 0} min</div>
+              </div>
+              <button className="btn outline" onClick={()=> removeRule(rule.id)}>Remover</button>
             </div>
           ))}
+          {rules.length===0 && <div className="muted">Nenhuma area cadastrada.</div>}
         </div>
       </div>
     </div>
@@ -4228,7 +4373,6 @@ function Loyalty(){
 }
 
 export default function App() {
-  const apiBase = API_BASE
   const [coupon, setCoupon] = useState(null)
   const [establishment, setEstablishment] = useState(() => {
     try {
@@ -4237,9 +4381,9 @@ export default function App() {
       try { eidFromEst = (JSON.parse(localStorage.getItem('establishment')||'{}')||{}).id || null } catch {}
       const eid = eidLS || eidFromEst || (mockEstablishment && mockEstablishment.id) || 'mundodocen5'
       const perKey = localStorage.getItem(`establishment_${eid}`)
-      if (perKey) return JSON.parse(perKey)
+      if (perKey) return normalizeEstablishment(JSON.parse(perKey))
       const stored = localStorage.getItem('establishment')
-      return stored ? JSON.parse(stored) : mockEstablishment
+      return stored ? normalizeEstablishment(JSON.parse(stored)) : mockEstablishment
     } catch {
       return mockEstablishment
     }
@@ -4285,25 +4429,26 @@ export default function App() {
     if (!eid) return
     const applyRow = (row) => {
       if (!row) return
+      const normalized = normalizeEstablishment(row)
       const merged = {
         ...establishment,
-        name: row.name ?? establishment?.name,
-        city: row.city ?? establishment?.city,
-        uf: row.uf ?? establishment?.uf,
-        avatarImage: row.avatar_url ?? establishment?.avatarImage,
-        coverImage: row.cover_url ?? establishment?.coverImage,
+        ...normalized,
+        brandPrimary: normalized?.theme?.brandPrimary ?? establishment?.brandPrimary,
+        brandAccent: normalized?.theme?.brandAccent ?? establishment?.brandAccent,
+        brandBg: normalized?.theme?.brandBg ?? establishment?.brandBg,
+        brandText: normalized?.theme?.brandText ?? establishment?.brandText,
+        brandMuted: normalized?.theme?.brandMuted ?? establishment?.brandMuted,
+        phones: establishment?.phones || [],
       }
       setEstablishment(merged)
     }
     // Fetch imediato
-    fetch(`${apiBase}/api/establishment/${encodeURIComponent(eid)}`)
-      .then(r => r.ok ? r.json() : null)
+    fetchEstablishment(eid)
       .then(applyRow)
       .catch(() => {})
     // Polling leve para atualização quase em tempo real
     const t = setInterval(() => {
-      fetch(`${apiBase}/api/establishment/${encodeURIComponent(eid)}`)
-        .then(r => r.ok ? r.json() : null)
+      fetchEstablishment(eid)
         .then(applyRow)
         .catch(() => {})
     }, 15000)
@@ -4786,16 +4931,32 @@ function EstabConfig(){
     return s
   }
   const save = async () => {
-    const next = { ...(establishment || {}), id, adminPassword, name, city, uf, instagram, coverImage, avatarImage, payments, hours: ensureSevenDays(hours), brandPrimary: normalizeColorToHex(brandPrimary), brandAccent: normalizeColorToHex(brandAccent), brandBg: normalizeColorToHex(brandBg), brandText: normalizeColorToHex(brandText), brandMuted: normalizeColorToHex(brandMuted), phones: [whatsapp].filter(Boolean) }
-    // Persistir estabelecimento no backend para habilitar cardápio
+    const next = {
+      ...(establishment || {}),
+      id,
+      adminPassword,
+      name,
+      city,
+      uf,
+      instagram,
+      coverImage,
+      avatarImage,
+      payments,
+      hours: ensureSevenDays(hours),
+      brandPrimary: normalizeColorToHex(brandPrimary),
+      brandAccent: normalizeColorToHex(brandAccent),
+      brandBg: normalizeColorToHex(brandBg),
+      brandText: normalizeColorToHex(brandText),
+      brandMuted: normalizeColorToHex(brandMuted),
+      phones: [whatsapp].filter(Boolean),
+      deliveryRules: establishment?.deliveryRules || [],
+      baseAddress: establishment?.baseAddress || {
+        city,
+        uf,
+      },
+    }
     try {
-      if (id?.trim()) {
-        await fetch(`${apiBase}/api/establishment`, {
-          method:'POST',
-          headers:{ 'Content-Type':'application/json' },
-          body: JSON.stringify({ id: id.trim(), name, city, uf, avatar_url: next.avatarImage || null, cover_url: next.coverImage || null })
-        }).catch(()=>{})
-      }
+      if (id?.trim()) await persistEstablishmentConfig(next)
     } catch {}
     setEstablishment(next)
     try {
