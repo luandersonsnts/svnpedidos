@@ -42,7 +42,7 @@ const getRequestBody = async (req, method) => {
   return undefined
 }
 
-export default async function proxyRequest(req, res) {
+export const proxyHandler = async function proxyRequest(req, res) {
   const upstreamBase = process.env.API_UPSTREAM_URL
   if (!upstreamBase) {
     res.status(500).json({ error: 'missing_api_upstream_url' })
@@ -79,3 +79,5 @@ export default async function proxyRequest(req, res) {
   const arrayBuffer = await upstreamResponse.arrayBuffer()
   res.send(Buffer.from(arrayBuffer))
 }
+
+export default proxyHandler
