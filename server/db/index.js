@@ -352,10 +352,11 @@ const assertProviderConfiguration = (config, provider) => {
 
   if (
     provider === 'sqlite' &&
-    config.env.isServerless &&
+    (config.env.isServerless || config.env.isProduction) &&
+    !config.database.allowSqliteFallback &&
     !config.database.allowSqliteInServerless
   ) {
-    throw new Error('SQLite local nao e permitido em runtime serverless sem ALLOW_SQLITE_IN_SERVERLESS=true.')
+    throw new Error('SQLite local nao e permitido em producao. Configure LIBSQL_DB_URL/LIBSQL_DB_TOKEN ou DATABASE_URL, ou use ALLOW_SQLITE_FALLBACK=true apenas conscientemente.')
   }
 }
 

@@ -64,6 +64,7 @@ export const appConfig = {
     idleTimeoutMs: toInt(normalizeEnvString(process.env.DB_POOL_IDLE_TIMEOUT_MS), 10000),
     connectionTimeoutMs: toInt(normalizeEnvString(process.env.DB_POOL_CONNECTION_TIMEOUT_MS), 3000),
     allowSqliteInServerless: toBool(process.env.ALLOW_SQLITE_IN_SERVERLESS, false),
+    allowSqliteFallback: toBool(process.env.ALLOW_SQLITE_FALLBACK, false),
   },
   auth: {
     adminPasswordHash: normalizeEnvString(process.env.ADMIN_PASSWORD_HASH),
