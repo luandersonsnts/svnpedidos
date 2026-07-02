@@ -11,12 +11,34 @@ const HOP_BY_HOP_HEADERS = new Set([
   'upgrade',
 ])
 
-const readRequestBody = async (req) => {
+const readRawRequestBody = async (req) => {
   const chunks = []
   for await (const chunk of req) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   }
   return chunks.length > 0 ? Buffer.concat(chunks) : undefined
+}
+
+const getRequestBody = async (req, method) => {
+  if (method === 'GET' || method === 'HEAD') return undefined
+
+  if (req.body !== undefined && req.body !== null) {
+    if (Buffer.isBuffer(req.body) || typeof req.body === 'string') {
+      return req.body
+    }
+
+    if (typeof req.body === 'object') {
+      return Buffer.from(JSON.stringify(req.body))
+    }
+
+    return Buffer.from(String(req.body))
+  }
+
+  if (typeof req?.[Symbol.asyncIterator] === 'function') {
+    return readRawRequestBody(req)
+  }
+
+  return undefined
 }
 
 export default async function handler(req, res) {
@@ -38,7 +60,7 @@ export default async function handler(req, res) {
   })
 
   const method = req.method || 'GET'
-  const body = method === 'GET' || method === 'HEAD' ? undefined : await readRequestBody(req)
+  const body = await getRequestBody(req, method)
   const upstreamResponse = await fetch(targetUrl, {
     method,
     headers,
