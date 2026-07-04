@@ -1,7 +1,18 @@
 import React, { useState, useContext, createContext, useEffect, useMemo, useRef } from 'react'
-import { Routes, Route, Link, useNavigate, useLocation, useParams } from 'react-router-dom'
+import { Routes, Route, Link, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom'
 import Button from './ui/Button'
-import { DEFAULT_ADMIN_PASSWORD, DEFAULT_WHATSAPP_NUMBER, fetchApi } from './config'
+import { DEFAULT_WHATSAPP_NUMBER, fetchApi } from './config'
+import {
+  clearAdminSession,
+  createManagedEstablishment,
+  fetchManagedEstablishments,
+  hasAdminAccess as hasAdminSessionAccess,
+  getAdminAuthHeaders,
+  isSuperAdmin,
+  loginAdmin,
+  resetManagedEstablishmentPassword,
+  updateManagedEstablishment,
+} from './admin'
 import {
   fetchDeliveryQuote,
   fetchEstablishment,
@@ -2532,6 +2543,9 @@ function getCurrentEstabId(){
     return localStorage.getItem('currentEstabId') || 'default'
   }
 }
+function hasAdminRouteAccess(establishmentId){
+  return hasAdminSessionAccess(establishmentId)
+}
 function getOrdersLS(){
   const eid = getCurrentEstabId()
   return getCachedOrders(eid)
@@ -2579,7 +2593,7 @@ function getNextOrderStatuses(status){
 }
 
 function buildEstablishmentPayload(establishment){
-  return {
+  const payload = {
     id: establishment?.id || '',
     name: establishment?.name || '',
     city: establishment?.city || '',
@@ -2600,6 +2614,10 @@ function buildEstablishmentPayload(establishment){
       brandMuted: establishment?.brandMuted,
     },
   }
+  if (String(establishment?.adminPassword || '').trim()) {
+    payload.admin_password = String(establishment.adminPassword).trim()
+  }
+  return payload
 }
 
 async function persistEstablishmentConfig(establishment){
@@ -2779,45 +2797,92 @@ function setCategoriesLS(list){ const eid = getCurrentEstabId(); try { localStor
 function AdminLogin(){
   const navigate = useNavigate()
   const [estabId, setEstabId] = useState(localStorage.getItem('currentEstabId')||'')
+  const [mode, setMode] = useState('establishment')
+  const [username, setUsername] = useState('')
   const [pass, setPass] = useState('')
   const [error, setError] = useState('')
-  const est = (()=>{ try{ return JSON.parse(localStorage.getItem('establishment')||'{}') } catch{ return {} } })()
-  const expectedId = (est?.id) || 'default'
-  const expectedPass = (est?.adminPassword) || (localStorage.getItem('adminAccessKey') || DEFAULT_ADMIN_PASSWORD)
+  const [loading, setLoading] = useState(false)
   const canLogin = estabId.trim().length>0 && pass.trim().length>0
-  const login = () => {
+  const canSuperLogin = username.trim().length>0 && pass.trim().length>0
+  const login = async () => {
     if (!canLogin) return
-    if (estabId.trim() === expectedId && pass.trim() === expectedPass){
+    try {
+      setLoading(true)
       setError('')
-      localStorage.setItem('currentEstabId', estabId.trim())
-      localStorage.setItem(`adminLogged_${estabId.trim()}`,'true')
+      await loginAdmin({
+        mode: 'establishment',
+        establishment_id: estabId.trim(),
+        password: pass.trim(),
+      })
       navigate('/admin/painel')
-    } else {
-      setError('ID do estabelecimento ou senha incorretos. Tente novamente.')
+    } catch (err) {
+      setError(err?.body?.message || 'ID do estabelecimento ou senha incorretos. Tente novamente.')
+    } finally {
+      setLoading(false)
+    }
+  }
+  const loginPlatform = async () => {
+    if (!canSuperLogin) return
+    try {
+      setLoading(true)
+      setError('')
+      await loginAdmin({
+        mode: 'superadmin',
+        username: username.trim(),
+        password: pass.trim(),
+      })
+      navigate('/admin/plataforma')
+    } catch (err) {
+      setError(err?.body?.message || 'Credenciais de plataforma invalidas.')
+    } finally {
+      setLoading(false)
     }
   }
   return (
     <div className="container">
       <h2 className="page-title">Gerenciamento do Estabelecimento</h2>
       <div className="section-card">
-        <div className="muted">Acesse com o ID do seu estabelecimento e senha definida por você.</div>
-        <div className="row" style={{gap:12, marginTop:8}}>
-          <div className="field" style={{flex:1}}>
-            <label className="muted">ID do estabelecimento</label>
-            <input placeholder="Ex: default" value={estabId} onChange={(e)=> setEstabId(e.target.value)} />
-          </div>
-          <div className="field" style={{flex:1}}>
-            <label className="muted">Senha</label>
-            <input type="password" placeholder="Sua senha" value={pass} onChange={(e)=> setPass(e.target.value)} />
-          </div>
+        <div className="muted">Agora o acesso admin usa autenticação real no backend.</div>
+        <div className="btn-group" style={{display:'flex', gap:8, marginTop:12, flexWrap:'wrap'}}>
+          <button className={`btn ${mode==='establishment' ? '' : 'outline'}`} onClick={()=> { setMode('establishment'); setError('') }}>Estabelecimento</button>
+          <button className={`btn ${mode==='superadmin' ? '' : 'outline'}`} onClick={()=> { setMode('superadmin'); setError('') }}>Plataforma</button>
         </div>
+        {mode === 'establishment' ? (
+          <div className="row" style={{gap:12, marginTop:8}}>
+            <div className="field" style={{flex:1}}>
+              <label className="muted">ID do estabelecimento</label>
+              <input placeholder="Ex: mundodocen5" value={estabId} onChange={(e)=> setEstabId(e.target.value)} />
+            </div>
+            <div className="field" style={{flex:1}}>
+              <label className="muted">Senha</label>
+              <input type="password" placeholder="Sua senha" value={pass} onChange={(e)=> setPass(e.target.value)} />
+            </div>
+          </div>
+        ) : (
+          <div className="row" style={{gap:12, marginTop:8}}>
+            <div className="field" style={{flex:1}}>
+              <label className="muted">Usuário da plataforma</label>
+              <input placeholder="Ex: master" value={username} onChange={(e)=> setUsername(e.target.value)} />
+            </div>
+            <div className="field" style={{flex:1}}>
+              <label className="muted">Senha da plataforma</label>
+              <input type="password" placeholder="Sua senha mestra" value={pass} onChange={(e)=> setPass(e.target.value)} />
+            </div>
+          </div>
+        )}
         {error && (
           <div style={{color:'var(--error, #b00020)', marginTop:8}}>{error}</div>
         )}
         <div style={{marginTop:8}}>
-            <Button disabled={!canLogin} onClick={login}>Entrar</Button>
+            <Button disabled={loading || (mode === 'establishment' ? !canLogin : !canSuperLogin)} onClick={mode === 'establishment' ? login : loginPlatform}>
+              {loading ? 'Entrando...' : 'Entrar'}
+            </Button>
         </div>
-        <div className="muted" style={{marginTop:8}}>Dica: configure o ID e a senha em "Configurar Estabelecimento".</div>
+        <div className="muted" style={{marginTop:8}}>
+          {mode === 'establishment'
+            ? 'Esqueceu a senha? redefina pelo painel da plataforma ou peça reset ao superadmin.'
+            : 'Use este acesso para cadastrar, bloquear, inativar e redefinir senha dos estabelecimentos.'}
+        </div>
       </div>
     </div>
   )
@@ -2826,8 +2891,20 @@ function AdminLogin(){
 function AdminPanel(){
   const navigate = useNavigate()
   const eid = getCurrentEstabId()
-  const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
+  const logged = hasAdminRouteAccess(eid)
+  const platform = isSuperAdmin()
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
+  const cards = [
+    {label:'Estabelecimento e identidade', desc:'Nome, logo, capa, cores, horario e senha admin.', path:'/admin/estabelecimento'},
+    {label:'Itens e categorias', desc:'Cadastre produtos, categorias, promocoes e disponibilidade.', path:'/admin/itens'},
+    {label:'Cidades e entregas', desc:'Configure taxa, bairros, CEPs e regras de atendimento.', path:'/admin/cidades'},
+    {label:'Cupons', desc:'Crie e mantenha descontos e codigos promocionais.', path:'/admin/cupons'},
+    {label:'Pedidos', desc:'Acompanhe pedidos recebidos e atualize os status.', path:'/admin/pedidos'},
+    {label:'Dashboard', desc:'Veja relatorios, estatisticas e desempenho.', path:'/admin/dashboard'},
+  ]
+  if (platform) {
+    cards.unshift({ label:'Plataforma', desc:'Cadastre estabelecimentos, redefina senha e controle status/pagamentos.', path:'/admin/plataforma' })
+  }
   return (
     <div className="container">
       <h2 className="page-title">Painel administrativo</h2>
@@ -2841,14 +2918,7 @@ function AdminPanel(){
         <div className="muted" style={{marginTop:4}}>Dashboard: relatorios e indicadores de vendas.</div>
       </div>
       <div className="grid" style={{gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))'}}>
-        {[
-          {label:'Estabelecimento e identidade', desc:'Nome, logo, capa, cores, horario e senha admin.', path:'/admin/estabelecimento'},
-          {label:'Itens e categorias', desc:'Cadastre produtos, categorias, promocoes e disponibilidade.', path:'/admin/itens'},
-          {label:'Cidades e entregas', desc:'Configure taxa, bairros, CEPs e regras de atendimento.', path:'/admin/cidades'},
-          {label:'Cupons', desc:'Crie e mantenha descontos e codigos promocionais.', path:'/admin/cupons'},
-          {label:'Pedidos', desc:'Acompanhe pedidos recebidos e atualize os status.', path:'/admin/pedidos'},
-          {label:'Dashboard', desc:'Veja relatorios, estatisticas e desempenho.', path:'/admin/dashboard'},
-        ].map(card => (
+        {cards.map(card => (
           <div key={card.path} className="card" style={{cursor:'pointer'}} onClick={()=> navigate(card.path)}>
             <div className="info">
               <div style={{fontWeight:700}}>{card.label}</div>
@@ -2861,10 +2931,252 @@ function AdminPanel(){
   )
 }
 
+function PlatformAdmin(){
+  const navigate = useNavigate()
+  const allowed = isSuperAdmin()
+  const [loading, setLoading] = useState(true)
+  const [savingId, setSavingId] = useState('')
+  const [error, setError] = useState('')
+  const [establishments, setEstablishments] = useState([])
+  const [resetMap, setResetMap] = useState({})
+  const [createForm, setCreateForm] = useState({
+    id: '',
+    name: '',
+    city: '',
+    uf: '',
+    plan: '',
+    support_contact: '',
+    password: '',
+  })
+
+  const load = async () => {
+    try {
+      setLoading(true)
+      setError('')
+      const rows = await fetchManagedEstablishments()
+      setEstablishments(rows)
+    } catch (err) {
+      setError(err?.body?.message || 'Nao foi possivel carregar os estabelecimentos.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!allowed) {
+      navigate('/admin')
+      return
+    }
+    load()
+  }, [allowed])
+
+  const updateRow = (id, key, value) => {
+    setEstablishments((current) => current.map((item) => item.id === id ? { ...item, [key]: value } : item))
+  }
+
+  const handleCreate = async () => {
+    if (!createForm.id.trim() || !createForm.password.trim()) {
+      setError('Informe ao menos ID e senha inicial do estabelecimento.')
+      return
+    }
+    try {
+      setSavingId('create')
+      setError('')
+      const created = await createManagedEstablishment(createForm)
+      setEstablishments((current) => [created, ...current])
+      setCreateForm({
+        id: '',
+        name: '',
+        city: '',
+        uf: '',
+        plan: '',
+        support_contact: '',
+        password: '',
+      })
+      showToast({ titulo:'Estabelecimento criado', mensagem:`${created?.id || 'Novo estabelecimento'} cadastrado com sucesso.`, tipo:'success' })
+    } catch (err) {
+      setError(err?.body?.message || 'Nao foi possivel criar o estabelecimento.')
+    } finally {
+      setSavingId('')
+    }
+  }
+
+  const handleSave = async (row) => {
+    try {
+      setSavingId(row.id)
+      setError('')
+      const updated = await updateManagedEstablishment(row.id, {
+        name: row.name,
+        city: row.city,
+        uf: row.uf,
+        status: row.status,
+        billing_status: row.billing_status,
+        paid_until: row.paid_until,
+        plan: row.plan,
+        support_contact: row.support_contact,
+        instagram: row.instagram,
+      })
+      setEstablishments((current) => current.map((item) => item.id === row.id ? updated : item))
+      showToast({ titulo:'Alteracoes salvas', mensagem:`${row.id} atualizado.`, tipo:'success' })
+    } catch (err) {
+      setError(err?.body?.message || `Nao foi possivel atualizar ${row.id}.`)
+    } finally {
+      setSavingId('')
+    }
+  }
+
+  const handleResetPassword = async (row) => {
+    const nextPassword = String(resetMap[row.id] || '').trim()
+    if (nextPassword.length < 6) {
+      setError('A senha temporaria precisa ter ao menos 6 caracteres.')
+      return
+    }
+    try {
+      setSavingId(`reset-${row.id}`)
+      setError('')
+      await resetManagedEstablishmentPassword(row.id, nextPassword)
+      setResetMap((current) => ({ ...current, [row.id]: '' }))
+      setEstablishments((current) => current.map((item) => item.id === row.id ? { ...item, has_password: true } : item))
+      showToast({ titulo:'Senha redefinida', mensagem:`Nova senha temporaria aplicada em ${row.id}.`, tipo:'success' })
+    } catch (err) {
+      setError(err?.body?.message || `Nao foi possivel redefinir a senha de ${row.id}.`)
+    } finally {
+      setSavingId('')
+    }
+  }
+
+  if (!allowed) return null
+
+  return (
+    <div className="container">
+      <AdminHeader title="Plataforma e Estabelecimentos" />
+      <div className="section-card" style={{marginTop:16}}>
+        <div style={{fontWeight:700}}>Novo estabelecimento</div>
+        <div className="muted" style={{marginTop:4}}>Cadastre aqui o estabelecimento e a senha inicial do admin local.</div>
+        <div className="row" style={{gap:12, marginTop:12, flexWrap:'wrap'}}>
+          <div className="field" style={{flex:'1 1 180px'}}>
+            <label className="muted">ID</label>
+            <input value={createForm.id} onChange={(e)=> setCreateForm((current) => ({ ...current, id: e.target.value }))} placeholder="Ex: mundodocen5" />
+          </div>
+          <div className="field" style={{flex:'1 1 220px'}}>
+            <label className="muted">Nome</label>
+            <input value={createForm.name} onChange={(e)=> setCreateForm((current) => ({ ...current, name: e.target.value }))} placeholder="Nome fantasia" />
+          </div>
+          <div className="field" style={{width:140}}>
+            <label className="muted">Cidade</label>
+            <input value={createForm.city} onChange={(e)=> setCreateForm((current) => ({ ...current, city: e.target.value }))} />
+          </div>
+          <div className="field" style={{width:90}}>
+            <label className="muted">UF</label>
+            <input value={createForm.uf} onChange={(e)=> setCreateForm((current) => ({ ...current, uf: e.target.value }))} maxLength={2} />
+          </div>
+          <div className="field" style={{width:160}}>
+            <label className="muted">Plano</label>
+            <input value={createForm.plan} onChange={(e)=> setCreateForm((current) => ({ ...current, plan: e.target.value }))} />
+          </div>
+          <div className="field" style={{flex:'1 1 220px'}}>
+            <label className="muted">Contato</label>
+            <input value={createForm.support_contact} onChange={(e)=> setCreateForm((current) => ({ ...current, support_contact: e.target.value }))} />
+          </div>
+          <div className="field" style={{flex:'1 1 220px'}}>
+            <label className="muted">Senha inicial</label>
+            <input type="password" value={createForm.password} onChange={(e)=> setCreateForm((current) => ({ ...current, password: e.target.value }))} placeholder="Min. 6 caracteres" />
+          </div>
+        </div>
+        <div style={{marginTop:12, display:'flex', gap:8}}>
+          <button className="btn" onClick={handleCreate} disabled={savingId === 'create'}>{savingId === 'create' ? 'Criando...' : 'Cadastrar estabelecimento'}</button>
+          <button className="btn outline" onClick={load} disabled={loading}>Atualizar lista</button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="section-card" style={{marginTop:16, color:'var(--error, #b00020)'}}>{error}</div>
+      )}
+
+      <div className="section-card" style={{marginTop:16}}>
+        <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
+          <div>
+            <div style={{fontWeight:700}}>Estabelecimentos cadastrados</div>
+            <div className="muted">Bloqueie por pagamento, inative ou redefina senha individualmente.</div>
+          </div>
+          <div className="muted">{loading ? 'Carregando...' : `${establishments.length} estabelecimento(s)`}</div>
+        </div>
+      </div>
+
+      {establishments.map((row) => (
+        <div key={row.id} className="section-card" style={{marginTop:12}}>
+          <div className="row" style={{justifyContent:'space-between', alignItems:'center', gap:12}}>
+            <div>
+              <div style={{fontWeight:700}}>{row.name || row.id}</div>
+              <div className="muted">ID: {row.id} • senha configurada: {row.has_password ? 'sim' : 'nao'}</div>
+            </div>
+            <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+              <button className="btn outline" onClick={()=> { localStorage.setItem('currentEstabId', row.id); navigate('/admin/painel') }}>Abrir painel</button>
+              <button className="btn" onClick={()=> handleSave(row)} disabled={savingId === row.id}>{savingId === row.id ? 'Salvando...' : 'Salvar status'}</button>
+            </div>
+          </div>
+          <div className="row" style={{gap:12, marginTop:12, flexWrap:'wrap'}}>
+            <div className="field" style={{flex:'1 1 220px'}}>
+              <label className="muted">Nome</label>
+              <input value={row.name || ''} onChange={(e)=> updateRow(row.id, 'name', e.target.value)} />
+            </div>
+            <div className="field" style={{width:140}}>
+              <label className="muted">Cidade</label>
+              <input value={row.city || ''} onChange={(e)=> updateRow(row.id, 'city', e.target.value)} />
+            </div>
+            <div className="field" style={{width:90}}>
+              <label className="muted">UF</label>
+              <input value={row.uf || ''} onChange={(e)=> updateRow(row.id, 'uf', e.target.value)} maxLength={2} />
+            </div>
+            <div className="field" style={{width:170}}>
+              <label className="muted">Status</label>
+              <select value={row.status || 'active'} onChange={(e)=> updateRow(row.id, 'status', e.target.value)}>
+                <option value="active">Ativo</option>
+                <option value="inactive">Inativo</option>
+              </select>
+            </div>
+            <div className="field" style={{width:180}}>
+              <label className="muted">Pagamento</label>
+              <select value={row.billing_status || 'paid'} onChange={(e)=> updateRow(row.id, 'billing_status', e.target.value)}>
+                <option value="paid">Pago</option>
+                <option value="overdue">Em atraso</option>
+                <option value="blocked">Bloqueado</option>
+              </select>
+            </div>
+            <div className="field" style={{width:160}}>
+              <label className="muted">Pago até</label>
+              <input value={row.paid_until || ''} onChange={(e)=> updateRow(row.id, 'paid_until', e.target.value)} placeholder="2026-07-31" />
+            </div>
+            <div className="field" style={{width:160}}>
+              <label className="muted">Plano</label>
+              <input value={row.plan || ''} onChange={(e)=> updateRow(row.id, 'plan', e.target.value)} />
+            </div>
+            <div className="field" style={{flex:'1 1 220px'}}>
+              <label className="muted">Contato</label>
+              <input value={row.support_contact || ''} onChange={(e)=> updateRow(row.id, 'support_contact', e.target.value)} />
+            </div>
+          </div>
+          <div className="row" style={{gap:12, marginTop:12, flexWrap:'wrap'}}>
+            <div className="field" style={{flex:'1 1 240px'}}>
+              <label className="muted">Nova senha temporária</label>
+              <input type="password" value={resetMap[row.id] || ''} onChange={(e)=> setResetMap((current) => ({ ...current, [row.id]: e.target.value }))} placeholder="Use para resetar acesso" />
+            </div>
+            <div style={{display:'flex', alignItems:'flex-end'}}>
+              <button className="btn outline" onClick={()=> handleResetPassword(row)} disabled={savingId === `reset-${row.id}`}>
+                {savingId === `reset-${row.id}` ? 'Redefinindo...' : 'Resetar senha'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function AdminOrders(){
   const navigate = useNavigate()
   const eid = getCurrentEstabId()
-  const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
+  const logged = hasAdminRouteAccess(eid)
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
   const [orders, setOrders] = useState(getOrdersLS())
   const [filterStatus, setFilterStatus] = useState('')
@@ -3199,12 +3511,15 @@ function LineChart({ labels, values, height=160, stroke='#3b82f6' }){
 // Cabeçalho padrão para páginas administrativas
 function AdminHeader({ title }){
   const navigate = useNavigate()
+  const platform = isSuperAdmin()
   return (
     <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
       <h2 style={{margin:0}}>{title}</h2>
       <div className="btn-group" style={{display:'flex', gap:8}}>
         <button className="btn outline" onClick={()=> navigate(-1)}>Voltar</button>
         <button className="btn" onClick={()=> navigate('/admin/painel')}>Painel</button>
+        {platform && <button className="btn outline" onClick={()=> navigate('/admin/plataforma')}>Plataforma</button>}
+        <button className="btn outline" onClick={()=> { clearAdminSession(); navigate('/admin') }}>Sair</button>
       </div>
     </div>
   )
@@ -3213,7 +3528,7 @@ function AdminHeader({ title }){
 function AdminDashboard(){
   const navigate = useNavigate()
   const eid = getCurrentEstabId()
-  const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
+  const logged = hasAdminRouteAccess(eid)
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
   // Relatórios com filtros e métricas
   const [orders, setOrders] = useState(getOrdersLS())
@@ -3526,7 +3841,7 @@ function AdminDashboard(){
 function AdminCoupons(){
   const navigate = useNavigate()
   const eid = getCurrentEstabId()
-  const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
+  const logged = hasAdminRouteAccess(eid)
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
   const [coupons, setCoupons] = useState([])
   const [code, setCode] = useState('')
@@ -3629,7 +3944,7 @@ function AdminCoupons(){
 function AdminItems(){
   const navigate = useNavigate()
   const eid = getCurrentEstabId()
-  const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
+  const logged = hasAdminRouteAccess(eid)
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
   const [estStatus, setEstStatus] = useState(null)
   useEffect(()=>{ fetchApi(`/api/establishment/${eid}/status`).then(r=> r.ok? r.json(): null).then(s=> setEstStatus(s)).catch(()=> setEstStatus(null)) }, [eid])
@@ -3815,7 +4130,7 @@ function AdminItems(){
       sku: newSku.trim() || undefined,
       by_user_id: 'admin'
     }
-    fetchApi('/api/produtos', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
+    fetchApi('/api/produtos', { method:'POST', headers:{ 'Content-Type':'application/json', ...getAdminAuthHeaders() }, body: JSON.stringify(payload) })
       .then(r=> r.ok? r.json(): Promise.reject(r))
       .then(()=>{
         // reload
@@ -3837,7 +4152,7 @@ function AdminItems(){
   const removeProduct = (id) => {
     const prod = products.find(p=> p.id===id)
     appendProductAudit({ action:'delete', by:'admin', id, name: prod?.name })
-    fetchApi(`/api/produtos/${encodeURIComponent(id)}`, { method:'DELETE', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, by_user_id: 'admin' }) })
+    fetchApi(`/api/produtos/${encodeURIComponent(id)}`, { method:'DELETE', headers:{ 'Content-Type':'application/json', ...getAdminAuthHeaders() }, body: JSON.stringify({ establishment_id: eid, by_user_id: 'admin' }) })
       .then(()=> fetchApi('/api/produtos', {}, { establishment_id: eid }).then(r=> r.json()).then(p=>{
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
           id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url || DEFAULT_PRODUCT_PLACEHOLDER, category: x.category_id,
@@ -3869,7 +4184,7 @@ function AdminItems(){
       sku: fields.sku,
       category_id: fields.category,
     }
-    fetchApi(`/api/produtos/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
+    fetchApi(`/api/produtos/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json', ...getAdminAuthHeaders() }, body: JSON.stringify(payload) })
       .then(()=> fetchApi('/api/produtos', {}, { establishment_id: eid }).then(r=> r.json()).then(p=>{
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
           id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url || DEFAULT_PRODUCT_PLACEHOLDER, category: x.category_id,
@@ -3895,7 +4210,7 @@ function AdminItems(){
         return
       }
     }
-    fetchApi(`/api/produtos/${encodeURIComponent(id)}/disponibilidade`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, available: !p.available, by_user_id:'admin' }) })
+    fetchApi(`/api/produtos/${encodeURIComponent(id)}/disponibilidade`, { method:'PUT', headers:{ 'Content-Type':'application/json', ...getAdminAuthHeaders() }, body: JSON.stringify({ establishment_id: eid, available: !p.available, by_user_id:'admin' }) })
       .then(()=> fetchApi('/api/produtos', {}, { establishment_id: eid }).then(r=> r.json()).then(p=>{
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
           id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url, category: x.category_id,
@@ -3912,7 +4227,7 @@ function AdminItems(){
     const id = name.toLowerCase().replace(/[^a-z0-9]+/gi,'-')
     if (cats.some(c=> c.id===id)) { return }
     const image = newCatImage || DEFAULT_CAT_PLACEHOLDER
-    fetchApi('/api/categorias', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, id, name, image_url: image }) })
+    fetchApi('/api/categorias', { method:'POST', headers:{ 'Content-Type':'application/json', ...getAdminAuthHeaders() }, body: JSON.stringify({ establishment_id: eid, id, name, image_url: image }) })
       .then(()=> fetchApi('/api/categorias', {}, { establishment_id: eid }).then(r=> r.json()).then(c=>{
         const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         setCats(catsUi)
@@ -3922,7 +4237,7 @@ function AdminItems(){
   }
   const updateCategory = (id, fields={}) => {
     const payload = { establishment_id: eid, name: fields.name, image_url: fields.image_url }
-    return fetchApi(`/api/categorias/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
+    return fetchApi(`/api/categorias/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json', ...getAdminAuthHeaders() }, body: JSON.stringify(payload) })
       .then(()=> fetchApi('/api/categorias', {}, { establishment_id: eid }).then(r=> r.json()).then(c=>{
     const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         setCats(catsUi)
@@ -4188,7 +4503,7 @@ function AdminItems(){
 function AdminCities(){
   const navigate = useNavigate()
   const eid = getCurrentEstabId()
-  const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
+  const logged = hasAdminRouteAccess(eid)
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
   const { establishment, setEstablishment } = useContext(EstablishmentContext)
   const [cityInput, setCityInput] = useState('')
@@ -4693,7 +5008,9 @@ export default function App() {
       <Route path="/checkout" element={<Checkout />} />
       <Route path="/rv-pedidos" element={<RVPedidos />} />
       <Route path="/admin/estabelecimento" element={<EstabConfig />} />
+      <Route path="/configurarestabelecimento" element={<Navigate to="/admin/estabelecimento" replace />} />
       <Route path="/admin" element={<AdminLogin />} />
+          <Route path="/admin/plataforma" element={<PlatformAdmin />} />
           <Route path="/admin/painel" element={<AdminPanel />} />
           <Route path="/admin/pedidos" element={<AdminOrders />} />
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
@@ -4961,7 +5278,7 @@ function EstabConfig(){
     return result.map(h => ({ label: h.label, value: h.value || 'Fechado' }))
   }
   const [id, setId] = useState(establishment?.id || '')
-  const [adminPassword, setAdminPassword] = useState(establishment?.adminPassword || (localStorage.getItem('adminAccessKey') || DEFAULT_ADMIN_PASSWORD))
+  const [adminPassword, setAdminPassword] = useState('')
   const [name, setName] = useState(establishment?.name || '')
   const [city, setCity] = useState(establishment?.city || '')
   const [uf, setUf] = useState(establishment?.uf || '')
@@ -5051,7 +5368,6 @@ function EstabConfig(){
     const next = {
       ...(establishment || {}),
       id,
-      adminPassword,
       name,
       city,
       uf,
@@ -5072,6 +5388,7 @@ function EstabConfig(){
         uf,
       },
     }
+    if (adminPassword.trim()) next.adminPassword = adminPassword.trim()
     try {
       if (id?.trim()) await persistEstablishmentConfig(next)
     } catch {}
@@ -5088,6 +5405,7 @@ function EstabConfig(){
       const waDigits = normalizePhone(whatsapp)
       if (waDigits) localStorage.setItem(`whatsappNumber_${keyId}`, waDigits)
     } catch {}
+    setAdminPassword('')
     navigate('/admin/painel')
   }
   // Preview instantâneo de cores enquanto edita
@@ -5148,8 +5466,8 @@ function EstabConfig(){
               <input placeholder="Ex: tita" value={id} onChange={(e)=> setId(e.target.value)} />
             </div>
             <div className="field" style={{flex:1}}>
-              <label className="muted">Senha de administração *</label>
-              <input type="password" placeholder="Defina sua senha" value={adminPassword} onChange={(e)=> setAdminPassword(e.target.value)} />
+              <label className="muted">Nova senha de administração</label>
+              <input type="password" placeholder="Preencha apenas se quiser trocar a senha atual" value={adminPassword} onChange={(e)=> setAdminPassword(e.target.value)} />
             </div>
           </div>
         )}

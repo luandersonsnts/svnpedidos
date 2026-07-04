@@ -1,4 +1,5 @@
 import { fetchApi } from './config'
+import { getAdminAuthHeaders } from './admin'
 
 const fetchJson = async (path, options = {}) => {
   const response = await fetchApi(path, {
@@ -48,6 +49,7 @@ export const fetchEstablishment = async (establishmentId) => {
 export const saveEstablishment = async (payload) => {
   const data = await fetchJson('/api/establishment', {
     method: 'POST',
+    headers: getAdminAuthHeaders(),
     body: JSON.stringify(payload),
   })
   return data

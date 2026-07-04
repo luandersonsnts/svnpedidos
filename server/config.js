@@ -68,6 +68,11 @@ export const appConfig = {
   },
   auth: {
     adminPasswordHash: normalizeEnvString(process.env.ADMIN_PASSWORD_HASH),
+    adminSessionSecret: normalizeEnvString(process.env.ADMIN_SESSION_SECRET),
+    adminTokenTtlHours: toInt(normalizeEnvString(process.env.ADMIN_TOKEN_TTL_HOURS), 12),
+    superAdminUsername: normalizeEnvString(process.env.SUPERADMIN_USERNAME, 'master'),
+    superAdminPassword: normalizeEnvString(process.env.SUPERADMIN_PASSWORD),
+    superAdminPasswordHash: normalizeEnvString(process.env.SUPERADMIN_PASSWORD_HASH) || normalizeEnvString(process.env.ADMIN_PASSWORD_HASH),
   },
   integrations: {
     apiUpstreamUrl: normalizeEnvString(process.env.API_UPSTREAM_URL),

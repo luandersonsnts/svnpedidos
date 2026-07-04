@@ -1,4 +1,5 @@
 import { fetchApi } from './config'
+import { getAdminAuthHeaders } from './admin'
 
 export const ORDER_STATUSES = {
   RECEBIDO: 'RECEBIDO',
@@ -134,7 +135,9 @@ export const createClientOrderId = () => {
 }
 
 export const fetchOrders = async ({ establishmentId, phone }) => {
-  const data = await fetchJson('/api/pedidos', {}, {
+  const data = await fetchJson('/api/pedidos', {
+    headers: phone ? {} : getAdminAuthHeaders(),
+  }, {
     establishment_id: establishmentId,
     phone: normalizePhone(phone),
   })
@@ -164,6 +167,7 @@ export const submitOrder = async (payload) => {
 export const updateOrderStatus = async ({ establishmentId, orderId, status, changedBy, note }) => {
   const data = await fetchJson(`/api/pedidos/${encodeURIComponent(orderId)}/status`, {
     method: 'PUT',
+    headers: getAdminAuthHeaders(),
     body: JSON.stringify({
       establishment_id: establishmentId,
       status,

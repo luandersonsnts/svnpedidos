@@ -7,6 +7,14 @@ import { appConfig } from './config.js'
 import { getDatabase } from './db/index.js'
 import { log, serializeError } from './logger.js'
 import { registerOrderRoutes } from './orders-api.js'
+import {
+  createAdminToken,
+  extractBearerToken,
+  hashPassword,
+  serializeAdminSession,
+  verifyAdminToken,
+  verifyPassword,
+} from './admin-auth.js'
 import { createUsageStats } from './usage-stats.js'
 import { computeEstablishmentStatus, parseEstablishmentSettings, resolveDeliveryQuote, serializeEstablishmentPayload } from './establishment-runtime.js'
 import { buildCouponWriteModel, getCouponByCode, mapCouponRow, validateCouponForOrder } from './coupon-runtime.js'
@@ -15,6 +23,10 @@ const usageStats = createUsageStats()
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const nowIso = () => new Date().toISOString()
 const toBool = (value) => !!(value && (value === 1 || value === true || value === 'true'))
+const sanitizeText = (value, maxLength = 255) => String(value || '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, maxLength)
 const isDuplicateColumnError = (error) => {
   const message = String(error?.message || error || '').toLowerCase()
   return message.includes('duplicate column') || message.includes('already exists')
@@ -32,6 +44,8 @@ const runOptionalMigration = async (database, sql) => {
 const ensureSchemaMigrations = async (database) => {
   const statements = [
     'ALTER TABLE establishments ADD COLUMN instagram TEXT',
+    'ALTER TABLE establishments ADD COLUMN admin_password_hash TEXT',
+    'ALTER TABLE establishments ADD COLUMN admin_password_updated_at TEXT',
     'ALTER TABLE establishments ADD COLUMN hours_json TEXT',
     'ALTER TABLE establishments ADD COLUMN payment_methods_json TEXT',
     'ALTER TABLE establishments ADD COLUMN base_address_json TEXT',
@@ -62,13 +76,22 @@ const ensureSchemaMigrations = async (database) => {
 const loadEstablishmentSettings = async (database, id) => {
   const row = await database.prepare(`
     SELECT id, name, city, uf, avatar_url, cover_url, status, billing_status, paid_until, plan,
-           support_contact, instagram, hours_json, payment_methods_json, base_address_json,
+           support_contact, instagram, admin_password_hash, admin_password_updated_at, hours_json, payment_methods_json, base_address_json,
            delivery_rules_json, theme_json, created_at, updated_at
     FROM establishments
     WHERE id=?
   `).get(id)
   return row ? parseEstablishmentSettings(row) : null
 }
+
+const loadEstablishmentAdminRow = async (database, id) => database.prepare(`
+  SELECT id, name, city, uf, status, billing_status, paid_until, plan, support_contact,
+         avatar_url, cover_url, instagram, admin_password_hash, admin_password_updated_at,
+         hours_json, payment_methods_json, base_address_json, delivery_rules_json, theme_json,
+         created_at, updated_at
+  FROM establishments
+  WHERE id=?
+`).get(id)
 
 const isRetryableDbError = (error) => {
   const message = String(error?.message || error || '').toLowerCase()
@@ -337,12 +360,299 @@ export const createApp = async () => {
   app.get('/admin/usage-stats', usageStatsHandler)
   app.get('/api/admin/usage-stats', usageStatsHandler)
 
+  const adminSessionSecret = appConfig.auth.adminSessionSecret ||
+    appConfig.database.libsqlToken ||
+    appConfig.database.postgresUrl ||
+    'svnpedidos-admin-session-secret'
+
+  const readAdminSession = (req) => {
+    const payload = verifyAdminToken({
+      token: extractBearerToken(req),
+      secret: adminSessionSecret,
+    })
+    return payload ? serializeAdminSession(payload) : null
+  }
+
+  const issueAdminSession = (payload) => ({
+    ok: true,
+    token: createAdminToken({
+      secret: adminSessionSecret,
+      ttlHours: appConfig.auth.adminTokenTtlHours,
+      payload,
+    }),
+    session: serializeAdminSession(payload),
+  })
+
+  const verifySuperAdminCredentials = ({ username, password }) => {
+    const expectedUsername = appConfig.auth.superAdminUsername || 'master'
+    const expectedHash = appConfig.auth.superAdminPasswordHash
+    const expectedPassword = appConfig.auth.superAdminPassword
+    if (!expectedUsername || (!expectedHash && !expectedPassword)) return false
+    if (sanitizeText(username, 120) !== expectedUsername) return false
+    if (expectedHash) return verifyPassword(password, expectedHash)
+    return sanitizeText(password, 255) === expectedPassword
+  }
+
+  const requireAdminAccess = (req, res, {
+    establishmentId = '',
+    allowSuperadmin = true,
+    allowEstablishment = true,
+  } = {}) => {
+    const session = readAdminSession(req)
+    if (!session) {
+      res.status(401).json({ error: 'unauthorized', message: 'Sessao administrativa invalida.' })
+      return null
+    }
+
+    if (session.role === 'superadmin') {
+      if (!allowSuperadmin) {
+        res.status(403).json({ error: 'forbidden' })
+        return null
+      }
+      return session
+    }
+
+    if (session.role === 'establishment') {
+      if (!allowEstablishment) {
+        res.status(403).json({ error: 'forbidden' })
+        return null
+      }
+      if (establishmentId && session.establishment_id !== establishmentId) {
+        res.status(403).json({ error: 'forbidden', message: 'Acesso restrito ao proprio estabelecimento.' })
+        return null
+      }
+      return session
+    }
+
+    res.status(403).json({ error: 'forbidden' })
+    return null
+  }
+
+  const mapManagedEstablishment = (row) => ({
+    id: row.id,
+    name: row.name || '',
+    city: row.city || '',
+    uf: row.uf || '',
+    status: row.status || 'active',
+    billing_status: row.billing_status || 'paid',
+    paid_until: row.paid_until || null,
+    plan: row.plan || null,
+    support_contact: row.support_contact || null,
+    instagram: row.instagram || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+    has_password: Boolean(row.admin_password_hash),
+  })
+
+  app.post('/api/admin/login', asyncRoute(async (req, res) => {
+    const mode = sanitizeText(req.body?.mode || 'establishment', 40)
+    const password = sanitizeText(req.body?.password, 255)
+    if (!password) return res.status(400).json({ error: 'missing_password' })
+
+    if (mode === 'superadmin') {
+      const username = sanitizeText(req.body?.username, 120)
+      if (!verifySuperAdminCredentials({ username, password })) {
+        return res.status(401).json({ error: 'invalid_credentials', message: 'Credenciais de plataforma invalidas.' })
+      }
+      return res.json(issueAdminSession({
+        role: 'superadmin',
+        username,
+      }))
+    }
+
+    const establishmentId = sanitizeText(req.body?.establishment_id, 120)
+    if (!establishmentId) return res.status(400).json({ error: 'missing_establishment_id' })
+    const row = await loadEstablishmentAdminRow(database, establishmentId)
+    if (!row) return res.status(404).json({ error: 'not_found', message: 'Estabelecimento nao encontrado.' })
+
+    const hasPassword = Boolean(row.admin_password_hash)
+    const matchesStoredPassword = hasPassword && verifyPassword(password, row.admin_password_hash)
+    const matchesLegacyDefault = !hasPassword && appConfig.integrations.defaultAdminPassword
+      ? password === appConfig.integrations.defaultAdminPassword
+      : false
+
+    if (!matchesStoredPassword && !matchesLegacyDefault) {
+      return res.status(401).json({ error: 'invalid_credentials', message: 'ID do estabelecimento ou senha incorretos.' })
+    }
+
+    if (matchesLegacyDefault) {
+      await withDbRetry({
+        label: 'admin.password.bootstrap',
+        context: { establishment_id: establishmentId, driver: database.mode },
+        writeKey: 'admin.password.bootstrap',
+        operation: () => database.prepare(`
+          UPDATE establishments
+          SET admin_password_hash=?, admin_password_updated_at=?, updated_at=?
+          WHERE id=?
+        `).run(hashPassword(password), nowIso(), nowIso(), establishmentId),
+      })
+    }
+
+    return res.json(issueAdminSession({
+      role: 'establishment',
+      establishment_id: establishmentId,
+    }))
+  }))
+
+  app.get('/api/admin/session', asyncRoute(async (req, res) => {
+    const session = requireAdminAccess(req, res, {})
+    if (!session) return
+    res.json({ ok: true, session })
+  }))
+
+  app.post('/api/admin/change-password', asyncRoute(async (req, res) => {
+    const session = requireAdminAccess(req, res, { allowSuperadmin: false, allowEstablishment: true })
+    if (!session) return
+    const newPassword = sanitizeText(req.body?.new_password, 255)
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'invalid_password', message: 'Use uma senha com pelo menos 6 caracteres.' })
+    }
+
+    await withDbRetry({
+      label: 'admin.password.change',
+      context: { establishment_id: session.establishment_id, driver: database.mode },
+      writeKey: 'admin.password.change',
+      operation: () => database.prepare(`
+        UPDATE establishments
+        SET admin_password_hash=?, admin_password_updated_at=?, updated_at=?
+        WHERE id=?
+      `).run(hashPassword(newPassword), nowIso(), nowIso(), session.establishment_id),
+    })
+
+    res.json({ ok: true })
+  }))
+
+  app.get('/api/admin/establishments', asyncRoute(async (req, res) => {
+    const session = requireAdminAccess(req, res, { allowSuperadmin: true, allowEstablishment: false })
+    if (!session) return
+    const rows = await database.prepare(`
+      SELECT id, name, city, uf, status, billing_status, paid_until, plan, support_contact,
+             instagram, admin_password_hash, created_at, updated_at
+      FROM establishments
+      ORDER BY updated_at DESC, name ASC, id ASC
+    `).all()
+    res.json({ ok: true, establishments: rows.map(mapManagedEstablishment) })
+  }))
+
+  app.post('/api/admin/establishments', asyncRoute(async (req, res) => {
+    const session = requireAdminAccess(req, res, { allowSuperadmin: true, allowEstablishment: false })
+    if (!session) return
+    const id = sanitizeText(req.body?.id, 120)
+    const password = sanitizeText(req.body?.password, 255)
+    if (!id) return res.status(400).json({ error: 'missing_id' })
+    if (password.length < 6) return res.status(400).json({ error: 'invalid_password', message: 'Defina uma senha inicial com pelo menos 6 caracteres.' })
+
+    const exists = await database.prepare('SELECT id FROM establishments WHERE id=?').get(id)
+    if (exists) return res.status(409).json({ error: 'establishment_conflict', message: 'Ja existe um estabelecimento com esse ID.' })
+
+    const now = nowIso()
+    await withDbRetry({
+      label: 'platform.establishment.create',
+      context: { establishment_id: id, driver: database.mode },
+      writeKey: 'platform.establishment.create',
+      operation: () => database.prepare(`
+        INSERT INTO establishments (
+          id, name, city, uf, avatar_url, cover_url, status, billing_status, paid_until, plan,
+          support_contact, instagram, admin_password_hash, admin_password_updated_at,
+          hours_json, payment_methods_json, base_address_json, delivery_rules_json, theme_json,
+          created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        id,
+        sanitizeText(req.body?.name, 160) || id,
+        sanitizeText(req.body?.city, 120) || null,
+        sanitizeText(req.body?.uf, 8) || null,
+        null,
+        null,
+        sanitizeText(req.body?.status, 40) || 'active',
+        sanitizeText(req.body?.billing_status, 40) || 'paid',
+        sanitizeText(req.body?.paid_until, 40) || null,
+        sanitizeText(req.body?.plan, 80) || null,
+        sanitizeText(req.body?.support_contact, 160) || null,
+        sanitizeText(req.body?.instagram, 160) || null,
+        hashPassword(password),
+        now,
+        JSON.stringify([]),
+        JSON.stringify([]),
+        null,
+        JSON.stringify([]),
+        null,
+        now,
+        now,
+      ),
+    })
+
+    const created = await loadEstablishmentAdminRow(database, id)
+    res.status(201).json({ ok: true, establishment: mapManagedEstablishment(created) })
+  }))
+
+  app.patch('/api/admin/establishments/:id', asyncRoute(async (req, res) => {
+    const session = requireAdminAccess(req, res, { allowSuperadmin: true, allowEstablishment: false })
+    if (!session) return
+    const id = sanitizeText(req.params.id, 120)
+    const existing = await loadEstablishmentAdminRow(database, id)
+    if (!existing) return res.status(404).json({ error: 'not_found' })
+
+    await withDbRetry({
+      label: 'platform.establishment.update',
+      context: { establishment_id: id, driver: database.mode },
+      writeKey: 'platform.establishment.update',
+      operation: () => database.prepare(`
+        UPDATE establishments
+        SET name=?, city=?, uf=?, status=?, billing_status=?, paid_until=?, plan=?, support_contact=?, instagram=?, updated_at=?
+        WHERE id=?
+      `).run(
+        sanitizeText(req.body?.name, 160) || existing.name || null,
+        sanitizeText(req.body?.city, 120) || existing.city || null,
+        sanitizeText(req.body?.uf, 8) || existing.uf || null,
+        sanitizeText(req.body?.status, 40) || existing.status || 'active',
+        sanitizeText(req.body?.billing_status, 40) || existing.billing_status || 'paid',
+        sanitizeText(req.body?.paid_until, 40) || existing.paid_until || null,
+        sanitizeText(req.body?.plan, 80) || existing.plan || null,
+        sanitizeText(req.body?.support_contact, 160) || existing.support_contact || null,
+        sanitizeText(req.body?.instagram, 160) || existing.instagram || null,
+        nowIso(),
+        id,
+      ),
+    })
+
+    const updated = await loadEstablishmentAdminRow(database, id)
+    res.json({ ok: true, establishment: mapManagedEstablishment(updated) })
+  }))
+
+  app.post('/api/admin/establishments/:id/reset-password', asyncRoute(async (req, res) => {
+    const session = requireAdminAccess(req, res, { allowSuperadmin: true, allowEstablishment: false })
+    if (!session) return
+    const id = sanitizeText(req.params.id, 120)
+    const newPassword = sanitizeText(req.body?.new_password, 255)
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'invalid_password', message: 'A nova senha precisa ter ao menos 6 caracteres.' })
+    }
+
+    const existing = await database.prepare('SELECT id FROM establishments WHERE id=?').get(id)
+    if (!existing) return res.status(404).json({ error: 'not_found' })
+
+    await withDbRetry({
+      label: 'platform.establishment.reset_password',
+      context: { establishment_id: id, driver: database.mode },
+      writeKey: 'platform.establishment.reset_password',
+      operation: () => database.prepare(`
+        UPDATE establishments
+        SET admin_password_hash=?, admin_password_updated_at=?, updated_at=?
+        WHERE id=?
+      `).run(hashPassword(newPassword), nowIso(), nowIso(), id),
+    })
+
+    res.json({ ok: true })
+  }))
+
   registerOrderRoutes({
     app,
     database,
     withDbRetry,
     asyncRoute,
     loadEstablishmentSettings: (id) => loadEstablishmentSettings(database, id),
+    requireAdminAccess,
   })
 
   app.get('/api/establishment/:id/status', asyncRoute(async (req, res) => {
@@ -382,6 +692,12 @@ export const createApp = async () => {
 
     const now = nowIso()
     const exists = await database.prepare('SELECT id FROM establishments WHERE id=?').get(id)
+    const session = requireAdminAccess(req, res, {
+      allowSuperadmin: true,
+      allowEstablishment: Boolean(exists),
+      establishmentId: exists ? id : '',
+    })
+    if (!session) return
     const settingsPayload = serializeEstablishmentPayload({
       instagram: payload.instagram,
       hours: payload.hours,
@@ -390,6 +706,7 @@ export const createApp = async () => {
       delivery_rules: payload.delivery_rules,
       theme: payload.theme,
     })
+    const nextPasswordHash = payload.admin_password ? hashPassword(payload.admin_password) : null
 
     await withDbRetry({
       label: exists ? 'establishment.update' : 'establishment.create',
@@ -399,6 +716,8 @@ export const createApp = async () => {
         ? database.prepare(`
           UPDATE establishments
           SET name=?, city=?, uf=?, support_contact=?, avatar_url=?, cover_url=?, instagram=?,
+              admin_password_hash=COALESCE(?, admin_password_hash),
+              admin_password_updated_at=CASE WHEN ? IS NOT NULL THEN ? ELSE admin_password_updated_at END,
               hours_json=?, payment_methods_json=?, base_address_json=?, delivery_rules_json=?, theme_json=?, updated_at=?
           WHERE id=?
         `).run(
@@ -409,6 +728,9 @@ export const createApp = async () => {
           avatar_url || null,
           cover_url || null,
           settingsPayload.instagram,
+          nextPasswordHash,
+          nextPasswordHash,
+          nextPasswordHash ? now : null,
           settingsPayload.hours_json,
           settingsPayload.payment_methods_json,
           settingsPayload.base_address_json,
@@ -420,8 +742,9 @@ export const createApp = async () => {
         : database.prepare(`
           INSERT INTO establishments (
             id,name,city,uf,avatar_url,cover_url,status,billing_status,support_contact,instagram,
+            admin_password_hash,admin_password_updated_at,
             hours_json,payment_methods_json,base_address_json,delivery_rules_json,theme_json,created_at,updated_at
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `).run(
           id,
           name || null,
@@ -433,6 +756,8 @@ export const createApp = async () => {
           'paid',
           support_contact || null,
           settingsPayload.instagram,
+          nextPasswordHash,
+          nextPasswordHash ? now : null,
           settingsPayload.hours_json,
           settingsPayload.payment_methods_json,
           settingsPayload.base_address_json,
@@ -462,6 +787,8 @@ export const createApp = async () => {
   app.get('/api/coupons', asyncRoute(async (req, res) => {
     const establishmentId = String(req.query.establishment_id || '').trim()
     if (!establishmentId) return res.status(400).json({ error: 'missing_establishment_id' })
+    const session = requireAdminAccess(req, res, { establishmentId })
+    if (!session) return
     const rows = await database.prepare('SELECT * FROM coupons WHERE establishment_id=? ORDER BY created_at DESC, code ASC').all(establishmentId)
     res.json({ ok: true, coupons: rows.map(mapCouponRow) })
   }))
@@ -469,6 +796,8 @@ export const createApp = async () => {
   app.post('/api/coupons', asyncRoute(async (req, res) => {
     const model = buildCouponWriteModel(req.body || {})
     if (!model.establishment_id) return res.status(400).json({ error: 'missing_establishment_id' })
+    const session = requireAdminAccess(req, res, { establishmentId: model.establishment_id })
+    if (!session) return
 
     const existing = await database.prepare('SELECT id FROM coupons WHERE establishment_id=? AND code=?').get(model.establishment_id, model.code)
     if (existing) {
@@ -505,6 +834,8 @@ export const createApp = async () => {
   app.put('/api/coupons/:id', asyncRoute(async (req, res) => {
     const existing = await database.prepare('SELECT * FROM coupons WHERE id=?').get(req.params.id)
     if (!existing) return res.status(404).json({ error: 'not_found' })
+    const session = requireAdminAccess(req, res, { establishmentId: existing.establishment_id })
+    if (!session) return
     const model = buildCouponWriteModel(req.body || {}, mapCouponRow(existing))
     const conflict = await database.prepare('SELECT id FROM coupons WHERE establishment_id=? AND code=? AND id<>?').get(model.establishment_id, model.code, req.params.id)
     if (conflict) {
@@ -536,8 +867,10 @@ export const createApp = async () => {
   }))
 
   app.delete('/api/coupons/:id', asyncRoute(async (req, res) => {
-    const existing = await database.prepare('SELECT id FROM coupons WHERE id=?').get(req.params.id)
+    const existing = await database.prepare('SELECT id, establishment_id FROM coupons WHERE id=?').get(req.params.id)
     if (!existing) return res.status(404).json({ error: 'not_found' })
+    const session = requireAdminAccess(req, res, { establishmentId: existing.establishment_id })
+    if (!session) return
     await withDbRetry({
       label: 'coupon.delete',
       context: { coupon_id: req.params.id, driver: database.mode },
@@ -568,6 +901,8 @@ export const createApp = async () => {
   app.post('/api/categorias', asyncRoute(async (req, res) => {
     const { establishment_id, id, name, image_url } = req.body || {}
     if (!establishment_id || !id || !name) return res.status(400).json({ error: 'invalid' })
+    const session = requireAdminAccess(req, res, { establishmentId: establishment_id })
+    if (!session) return
 
     await withDbRetry({
       label: 'category.create',
@@ -584,6 +919,8 @@ export const createApp = async () => {
     const { id } = req.params
     const { establishment_id, name, image_url } = req.body || {}
     if (!establishment_id) return res.status(400).json({ error: 'missing_establishment_id' })
+    const session = requireAdminAccess(req, res, { establishmentId: establishment_id })
+    if (!session) return
 
     const row = await database.prepare('SELECT * FROM categories WHERE id=? AND establishment_id=?').get(id, establishment_id)
     if (!row) return res.status(404).json({ error: 'not_found' })
@@ -616,6 +953,8 @@ export const createApp = async () => {
     for (const key of required) {
       if (!product[key] && product[key] !== 0) return res.status(400).json({ error: `missing_${key}` })
     }
+    const session = requireAdminAccess(req, res, { establishmentId: product.establishment_id })
+    if (!session) return
 
     if (Number(product.base_price) <= 0) return res.status(400).json({ error: 'price_must_be_positive' })
     const prep = parseInt(product.prep_time_min || 0, 10)
@@ -660,6 +999,8 @@ export const createApp = async () => {
   app.put('/api/produtos/:id', asyncRoute(async (req, res) => {
     const { id } = req.params
     const product = req.body || {}
+    const session = requireAdminAccess(req, res, { establishmentId: product.establishment_id })
+    if (!session) return
     const row = await database.prepare('SELECT * FROM products WHERE id=? AND establishment_id=?').get(id, product.establishment_id)
     if (!row) return res.status(404).json({ error: 'not_found' })
 
@@ -719,6 +1060,8 @@ export const createApp = async () => {
   app.put('/api/produtos/:id/disponibilidade', asyncRoute(async (req, res) => {
     const { id } = req.params
     const { establishment_id, available } = req.body || {}
+    const session = requireAdminAccess(req, res, { establishmentId: establishment_id })
+    if (!session) return
     const row = await database.prepare('SELECT * FROM products WHERE id=? AND establishment_id=?').get(id, establishment_id)
     if (!row) return res.status(404).json({ error: 'not_found' })
     if (row.status !== 'active') return res.status(400).json({ error: 'status_inactive' })
@@ -751,6 +1094,8 @@ export const createApp = async () => {
     const { id } = req.params
     const { establishment_id } = req.body || {}
     if (!establishment_id) return res.status(400).json({ error: 'missing_establishment_id' })
+    const session = requireAdminAccess(req, res, { establishmentId: establishment_id })
+    if (!session) return
 
     const row = await database.prepare('SELECT * FROM products WHERE id=? AND establishment_id=?').get(id, establishment_id)
     if (!row) return res.status(404).json({ error: 'not_found' })

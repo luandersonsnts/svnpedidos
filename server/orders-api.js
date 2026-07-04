@@ -302,12 +302,16 @@ const handleValidationError = (res, error) => {
   return null
 }
 
-export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute, loadEstablishmentSettings }) => {
+export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute, loadEstablishmentSettings, requireAdminAccess }) => {
   app.get('/api/pedidos', asyncRoute(async (req, res) => {
     const establishmentId = sanitizeText(req.query.establishment_id, 120)
     if (!establishmentId) return res.status(400).json({ error: 'missing_establishment_id' })
 
     const phone = normalizePhone(req.query.phone)
+    if (!phone) {
+      const session = requireAdminAccess(req, res, { establishmentId })
+      if (!session) return
+    }
     const orders = await loadOrders(database, { establishmentId, phone: phone || null })
     res.json({ ok: true, orders })
   }))
@@ -487,6 +491,8 @@ export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute, lo
     } catch (error) {
       return handleValidationError(res, error)
     }
+    const session = requireAdminAccess(req, res, { establishmentId: payload.establishment_id })
+    if (!session) return
 
     const existing = await loadOrderById(database, {
       orderId: req.params.id,
@@ -524,7 +530,7 @@ export const registerOrderRoutes = ({ app, database, withDbRetry, asyncRoute, lo
             payload.establishment_id,
             payload.status,
             changedAt,
-            sanitizeText(payload.changed_by || 'admin', 120),
+            sanitizeText(payload.changed_by || session.username || session.establishment_id || 'admin', 120),
             sanitizeText(payload.note || '', 500) || null,
           )
       }),

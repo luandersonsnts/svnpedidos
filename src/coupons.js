@@ -1,4 +1,5 @@
 import { fetchApi } from './config'
+import { getAdminAuthHeaders } from './admin'
 
 const fetchJson = async (path, options = {}, params) => {
   const response = await fetchApi(path, {
@@ -44,13 +45,16 @@ export const normalizeCoupon = (coupon) => {
 }
 
 export const fetchCoupons = async ({ establishmentId }) => {
-  const data = await fetchJson('/api/coupons', {}, { establishment_id: establishmentId })
+  const data = await fetchJson('/api/coupons', {
+    headers: getAdminAuthHeaders(),
+  }, { establishment_id: establishmentId })
   return (data?.coupons || []).map(normalizeCoupon)
 }
 
 export const createCoupon = async (payload) => {
   const data = await fetchJson('/api/coupons', {
     method: 'POST',
+    headers: getAdminAuthHeaders(),
     body: JSON.stringify(payload),
   })
   return normalizeCoupon(data?.coupon)
@@ -59,6 +63,7 @@ export const createCoupon = async (payload) => {
 export const updateCoupon = async (couponId, payload) => {
   const data = await fetchJson(`/api/coupons/${encodeURIComponent(couponId)}`, {
     method: 'PUT',
+    headers: getAdminAuthHeaders(),
     body: JSON.stringify(payload),
   })
   return normalizeCoupon(data?.coupon)
@@ -67,6 +72,7 @@ export const updateCoupon = async (couponId, payload) => {
 export const deleteCoupon = async (couponId) => {
   return fetchJson(`/api/coupons/${encodeURIComponent(couponId)}`, {
     method: 'DELETE',
+    headers: getAdminAuthHeaders(),
   })
 }
 
