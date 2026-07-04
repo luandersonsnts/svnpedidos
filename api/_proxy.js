@@ -1,5 +1,8 @@
+import { Readable } from 'node:stream'
+
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
+  'content-encoding',
   'content-length',
   'expect',
   'host',
@@ -49,7 +52,8 @@ export const proxyHandler = async function proxyRequest(req, res) {
     return
   }
 
-  const targetUrl = new URL(req.url, upstreamBase)
+  const incomingUrl = new URL(req.url, 'http://localhost')
+  const targetUrl = new URL(`${incomingUrl.pathname}${incomingUrl.search}`, upstreamBase)
   const headers = new Headers()
   Object.entries(req.headers || {}).forEach(([key, value]) => {
     if (!value || HOP_BY_HOP_HEADERS.has(key.toLowerCase())) return
@@ -59,6 +63,7 @@ export const proxyHandler = async function proxyRequest(req, res) {
     }
     headers.set(key, value)
   })
+  headers.set('accept-encoding', 'identity')
 
   const method = req.method || 'GET'
   const body = await getRequestBody(req, method)
@@ -76,8 +81,18 @@ export const proxyHandler = async function proxyRequest(req, res) {
     res.setHeader(key, value)
   })
 
-  const arrayBuffer = await upstreamResponse.arrayBuffer()
-  res.send(Buffer.from(arrayBuffer))
+  if (!upstreamResponse.body) {
+    res.end()
+    return
+  }
+
+  await new Promise((resolve, reject) => {
+    const stream = Readable.fromWeb(upstreamResponse.body)
+    stream.on('error', reject)
+    res.on('error', reject)
+    res.on('finish', resolve)
+    stream.pipe(res)
+  })
 }
 
 export default proxyHandler
