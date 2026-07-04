@@ -1,26 +1,13 @@
-import { API_BASE } from './config'
+import { fetchApi } from './config'
 
-const normalizeBase = (value) => String(value || '').replace(/\/+$/, '')
-const baseUrl = normalizeBase(API_BASE)
-
-const buildUrl = (path, params) => {
-  const url = new URL(`${baseUrl}${path}`, window.location.origin)
-  Object.entries(params || {}).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      url.searchParams.set(key, value)
-    }
-  })
-  return baseUrl ? url.toString() : `${url.pathname}${url.search}`
-}
-
-const fetchJson = async (url, options = {}) => {
-  const response = await fetch(url, {
+const fetchJson = async (path, options = {}, params) => {
+  const response = await fetchApi(path, {
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {}),
     },
     ...options,
-  })
+  }, params)
 
   let data = null
   try {
@@ -57,12 +44,12 @@ export const normalizeCoupon = (coupon) => {
 }
 
 export const fetchCoupons = async ({ establishmentId }) => {
-  const data = await fetchJson(buildUrl('/api/coupons', { establishment_id: establishmentId }))
+  const data = await fetchJson('/api/coupons', {}, { establishment_id: establishmentId })
   return (data?.coupons || []).map(normalizeCoupon)
 }
 
 export const createCoupon = async (payload) => {
-  const data = await fetchJson(buildUrl('/api/coupons'), {
+  const data = await fetchJson('/api/coupons', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
@@ -70,7 +57,7 @@ export const createCoupon = async (payload) => {
 }
 
 export const updateCoupon = async (couponId, payload) => {
-  const data = await fetchJson(buildUrl(`/api/coupons/${encodeURIComponent(couponId)}`), {
+  const data = await fetchJson(`/api/coupons/${encodeURIComponent(couponId)}`, {
     method: 'PUT',
     body: JSON.stringify(payload),
   })
@@ -78,13 +65,13 @@ export const updateCoupon = async (couponId, payload) => {
 }
 
 export const deleteCoupon = async (couponId) => {
-  return fetchJson(buildUrl(`/api/coupons/${encodeURIComponent(couponId)}`), {
+  return fetchJson(`/api/coupons/${encodeURIComponent(couponId)}`, {
     method: 'DELETE',
   })
 }
 
 export const validateCoupon = async ({ establishmentId, code, subtotal }) => {
-  const data = await fetchJson(buildUrl('/api/coupons/validate'), {
+  const data = await fetchJson('/api/coupons/validate', {
     method: 'POST',
     body: JSON.stringify({
       establishment_id: establishmentId,

@@ -4,13 +4,14 @@
   "version": "0.0.1",
   "type": "module",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "vite",
     "server": "node server/index.js",
     "start": "node server/index.js",
     "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
+    "dev:stable": "npm run build && npm run server",
     "build": "vite build",
     "heroku-build": "node scripts/heroku-build.mjs",
     "preview": "vite preview",

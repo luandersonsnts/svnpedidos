@@ -1,7 +1,7 @@
 import React, { useState, useContext, createContext, useEffect, useMemo, useRef } from 'react'
 import { Routes, Route, Link, useNavigate, useLocation, useParams } from 'react-router-dom'
 import Button from './ui/Button'
-import { API_BASE, DEFAULT_ADMIN_PASSWORD, DEFAULT_WHATSAPP_NUMBER } from './config'
+import { DEFAULT_ADMIN_PASSWORD, DEFAULT_WHATSAPP_NUMBER, fetchApi } from './config'
 import {
   fetchDeliveryQuote,
   fetchEstablishment,
@@ -227,6 +227,7 @@ function Home() {
   const [modalQty, setModalQty] = useState(1)
   const [modalObs, setModalObs] = useState('')
   const [expandedCats, setExpandedCats] = useState({})
+  const promoScrollerRef = useRef(null)
   const [refreshTick, setRefreshTick] = useState(0)
   const [imgEditorApp, setImgEditorApp] = useState(null) // { src, w, h, setter, title }
   const eid = getCurrentEstabId()
@@ -236,7 +237,6 @@ function Home() {
   const [apiCats, setApiCats] = useState(null)
   const [apiProds, setApiProds] = useState(null)
   const [estInactive, setEstInactive] = useState(false)
-  const apiBase = API_BASE
   const [estStatus, setEstStatus] = useState(null)
   useEffect(()=>{
     fetchEstablishmentStatus(eid)
@@ -266,7 +266,7 @@ function Home() {
   useEffect(()=>{
     const load = async ()=>{
       try {
-        const resp = await fetch(`${apiBase}/api/cardapio?establishment_id=${eid}`)
+        const resp = await fetchApi('/api/cardapio', {}, { establishment_id: eid })
         if (!resp.ok) { setApiCats(null); setApiProds(null); setEstInactive(false); return }
         const json = await resp.json()
         if (json && json.inactive){ setEstInactive(true); setApiCats([]); setApiProds([]); return }
@@ -391,13 +391,120 @@ function Home() {
       return 0
     })
   const featured = productsSource.filter(p => p.available && !categoriesAvailability[p.category]).slice(0, 4)
+  const visibleCategories = categories.filter(cat => !categoriesAvailability[cat.id])
+  const openStatus = computeOpenStatus()
+  const cartSubtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
+  const getCategoryEmoji = (name = '') => {
+    const normalized = String(name || '').toLowerCase()
+    if (/burg|hamb/.test(normalized)) return '🍔'
+    if (/pizza/.test(normalized)) return '🍕'
+    if (/combo|oferta|promo/.test(normalized)) return '🔥'
+    if (/bebida|refrigerante|suco|drink/.test(normalized)) return '🥤'
+    if (/sobremesa|doce|bolo|acai|a[cç]a[ií]/.test(normalized)) return '🍰'
+    return '🍽️'
+  }
+  const getPromoBadge = (product, index) => {
+    if (product?.promoActive) return { label: 'OFERTA DO DIA', tone: 'green' }
+    const fallback = [
+      { label: 'MAIS PEDIDO', tone: 'orange' },
+      { label: 'RECOMENDADO', tone: 'blue' },
+      { label: 'ESCOLHA DA CASA', tone: 'purple' },
+      { label: 'EM ALTA', tone: 'yellow' },
+    ]
+    return fallback[index % fallback.length]
+  }
+  const scrollToElement = (id) => {
+    const element = document.getElementById(id)
+    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  const handleCategorySelect = (nextCategory) => {
+    setSelectedCategory(nextCategory)
+    setShowCats(false)
+    if (nextCategory) {
+      setExpandedCats((prev) => ({ ...prev, [nextCategory]: true }))
+      window.requestAnimationFrame(() => scrollToElement(`category-${nextCategory}`))
+      return
+    }
+    window.requestAnimationFrame(() => scrollToElement('catalog-sections'))
+  }
+  const scrollFeatured = (direction) => {
+    if (!promoScrollerRef.current) return
+    promoScrollerRef.current.scrollBy({ left: direction * 320, behavior: 'smooth' })
+  }
   return (
     <>
-      <div className="hero" style={{marginTop:12}}>
-        <div className="hero-bg">
-          <div className="hero-frame">
+      <div className="container home-container">
+        <div className="catalog-topbar-shell">
+          <div className="catalog-topbar">
+            <button className="catalog-brand" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+              <img
+                className="catalog-brand-logo"
+                src={(establishment && establishment.avatarImage) || (mockEstablishment && mockEstablishment.avatarImage)}
+                alt="Logo"
+                loading="eager"
+                decoding="async"
+                onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.avatarImage) || e.currentTarget.src }}
+              />
+              <div className="catalog-brand-copy">
+                <span className="catalog-brand-name">{(establishment && establishment.name) || (mockEstablishment && mockEstablishment.name) || 'Seu Estabelecimento'}</span>
+                <span className="catalog-brand-status">{openStatus.label}</span>
+              </div>
+            </button>
+
+            <div className="catalog-category-wrap">
+              <button className="catalog-category-trigger" onClick={() => setShowCats((value) => !value)}>
+                <span>{(visibleCategories.find((cat) => cat.id === selectedCategory)?.name || visibleCategories[0]?.name || 'Categorias').toUpperCase()}</span>
+                <span aria-hidden="true">▾</span>
+              </button>
+              {showCats && (
+                <div className="catalog-category-menu">
+                  <button className={`catalog-category-item ${!selectedCategory ? 'active' : ''}`} onClick={() => handleCategorySelect('')}>
+                    Todas as categorias
+                  </button>
+                  {visibleCategories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      className={`catalog-category-item ${selectedCategory === cat.id ? 'active' : ''}`}
+                      onClick={() => handleCategorySelect(cat.id)}
+                    >
+                      {getCategoryEmoji(cat.name)} {cat.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <label className="catalog-search" aria-label="Buscar produto">
+              <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4a6 6 0 104.47 10.01l4.76 4.76 1.41-1.41-4.76-4.76A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z" /></svg>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Busque por um produto"
+              />
+            </label>
+
+            <nav className="catalog-nav">
+              <button type="button" className="catalog-nav-item active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+                <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V10z"/></svg>
+                <span>Início</span>
+              </button>
+              <button type="button" className="catalog-nav-item" onClick={() => scrollToElement('promocoes')}>
+                <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm10 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM6.29 19.12l1.42 1.42L19.12 9.12l-1.41-1.41L6.29 19.12z"/></svg>
+                <span>Promoções</span>
+              </button>
+              <Link className="catalog-nav-item" to="/pedidos">
+                <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12v20l-2-2-2 2-2-2-2 2-2-2-2 2V2z"/></svg>
+                <span>Pedidos</span>
+              </Link>
+            </nav>
+          </div>
+        </div>
+
+        <div className="home-summary-card">
+          <div className="home-summary-cover-wrap">
             <img
-              className="estab-cover"
+              className="home-summary-cover"
               src={(establishment && establishment.coverImage) || (mockEstablishment && mockEstablishment.coverImage)}
               alt="Capa do estabelecimento"
               loading="eager"
@@ -406,249 +513,258 @@ function Home() {
               crossOrigin="anonymous"
               onError={(e)=> { e.currentTarget.src = DEFAULT_COVER_PLACEHOLDER }}
             />
-            <div className="hero-gradient" />
-          </div>
-        </div>
-        <div className="hero-content mobile">
-          <div className="avatar-card">
             <img
-              className="avatar-img"
+              className="home-summary-logo"
               src={(establishment && establishment.avatarImage) || (mockEstablishment && mockEstablishment.avatarImage)}
-              alt="Logo"
-              loading="eager"
-              fetchpriority="high"
-              decoding="async"
-              crossOrigin="anonymous"
-              onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.avatarImage) || e.currentTarget.src }}
-            />
-          </div>
-          <h1 className="hero-title" style={{marginTop:8}}>{(establishment && establishment.name) || (mockEstablishment && mockEstablishment.name) || 'Seu Estabelecimento'}</h1>
-          <div className="hero-info" style={{marginTop:6}}>
-            {(() => { const os = computeOpenStatus(); return (<span className={`open-badge status-${os.status}`}>{os.label}</span>) })()}
-            <span className="hero-dot" />
-            <span style={{display:'inline-flex', alignItems:'center', gap:6}}>
-              <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 4.17 4.42 9.92 6.24 12.11.4.48 1.13.48 1.53 0C14.58 18.92 19 13.17 19 9c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"></path></svg>
-              {(establishment && establishment.city) || (mockEstablishment && mockEstablishment.city)} - {(establishment && establishment.uf) || (mockEstablishment && mockEstablishment.uf)}
-            </span>
-            <span className="hero-dot" />
-            <button className="linklike" onClick={()=> setShowInfo(true)} style={{fontWeight:600}}>Mais informações</button>
-          </div>
-        </div>
-        <div className="hero-content desktop">
-          <div className="avatar-card" style={{width:96, height:96}}>
-            <img
-              className="avatar-img"
-              src={(establishment && establishment.avatarImage) || (mockEstablishment && mockEstablishment.avatarImage)}
-              alt="Logo"
+              alt="Logo do estabelecimento"
               loading="eager"
               decoding="async"
               onError={(e)=> { e.currentTarget.src = (mockEstablishment && mockEstablishment.avatarImage) || e.currentTarget.src }}
             />
           </div>
-          <div>
-            <h1 className="hero-title">{(establishment && establishment.name) || (mockEstablishment && mockEstablishment.name) || 'Seu Estabelecimento'}</h1>
-            <div className="hero-info" style={{marginTop:6}}>
-              {(() => { const os = computeOpenStatus(); return (<span className={`open-badge status-${os.status}`}>{os.label}</span>) })()}
-              <span className="hero-dot" />
-              <span style={{display:'inline-flex', alignItems:'center', gap:6}}>
-                <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 4.17 4.42 9.92 6.24 12.11.4.48 1.13.48 1.53 0C14.58 18.92 19 13.17 19 9c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"></path></svg>
-                {(establishment && establishment.city) || (mockEstablishment && mockEstablishment.city)} - {(establishment && establishment.uf) || (mockEstablishment && mockEstablishment.uf)}
-              </span>
-              <span className="hero-dot" />
-              <button className="linklike" onClick={()=> setShowInfo(true)} style={{fontWeight:600}}>Mais informações</button>
+          <div className="home-summary-main">
+            <div className="home-summary-copy">
+              <span className="home-summary-eyebrow">Cardápio digital</span>
+              <h1 className="home-summary-title">{(establishment && establishment.name) || (mockEstablishment && mockEstablishment.name) || 'Seu Estabelecimento'}</h1>
+              <div className="home-summary-meta">
+                <span className={`open-badge status-${openStatus.status}`}>{openStatus.label}</span>
+                <span className="home-summary-location">
+                  <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 4.17 4.42 9.92 6.24 12.11.4.48 1.13.48 1.53 0C14.58 18.92 19 13.17 19 9c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"></path></svg>
+                  <span>{(establishment && establishment.city) || (mockEstablishment && mockEstablishment.city)} - {(establishment && establishment.uf) || (mockEstablishment && mockEstablishment.uf)}</span>
+                </span>
+              </div>
+            </div>
+            <div className="home-summary-actions">
+              <Button variant="secondary" onClick={() => setShowInfo(true)}>Mais informações</Button>
+              <Button variant="outline" onClick={() => setShowCoupons(true)}>Ver cupons</Button>
             </div>
           </div>
         </div>
-      </div>
-      <div className="feed-tabs">
-        <a href="#" className={!selectedCategory ? 'active' : ''} onClick={(e)=> { e.preventDefault(); setSelectedCategory('') }}>Todas</a>
-        {categories.filter(cat => !categoriesAvailability[cat.id]).map(cat => (
-          <a key={cat.id} href="#" className={selectedCategory===cat.id ? 'active' : ''} onClick={(e)=> { e.preventDefault(); setSelectedCategory(cat.id) }}>{cat.name}</a>
-        ))}
-      </div>
 
-      {/* Removido: barra redundante "Saiba mais" e abas internas */}
+        <button type="button" className="mobile-delivery-quickcard mobile-only" onClick={() => setShowCepModal(true)}>
+          <div className="mobile-delivery-quickcard-copy">
+            <span className="mobile-delivery-quickcard-title">Calcular taxa e tempo de entrega</span>
+            <span className="mobile-delivery-quickcard-subtitle">Consulte CEP, bairro e disponibilidade</span>
+          </div>
+          <span className="mobile-delivery-quickcard-arrow" aria-hidden="true">›</span>
+        </button>
 
-      <div className="container" style={{paddingTop:16}}>
+        <div className="mobile-discovery-bar mobile-only">
+          <div className="catalog-category-wrap">
+            <button className="catalog-category-trigger mobile-category-trigger" onClick={() => setShowCats((value) => !value)}>
+              <span>{visibleCategories.find((cat) => cat.id === selectedCategory)?.name || 'Lista de categorias'}</span>
+              <span aria-hidden="true">▾</span>
+            </button>
+            {showCats && (
+              <div className="catalog-category-menu">
+                <button className={`catalog-category-item ${!selectedCategory ? 'active' : ''}`} onClick={() => handleCategorySelect('')}>
+                  Todas as categorias
+                </button>
+                {visibleCategories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    className={`catalog-category-item ${selectedCategory === cat.id ? 'active' : ''}`}
+                    onClick={() => handleCategorySelect(cat.id)}
+                  >
+                    {getCategoryEmoji(cat.name)} {cat.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <label className="catalog-search mobile-search" aria-label="Buscar produto">
+            <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4a6 6 0 104.47 10.01l4.76 4.76 1.41-1.41-4.76-4.76A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z" /></svg>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Busque por um produto"
+            />
+          </label>
+        </div>
 
       {estInactive && (
-        <div className="section-card" style={{marginTop:12}}>
+        <div className="section-card home-alert-card">
           <div style={{fontWeight:700}}>Estabelecimento temporariamente indisponível</div>
           <div className="muted" style={{marginTop:4}}>Entre em contato com a SVN PEDIDOS para regularizar</div>
         </div>
       )}
 
-      {/* Layout em duas colunas: conteúdo principal + painel lateral (imagem de referência) */}
       <div className="feed-layout">
-      <div className="feed-main">
-
-      <div id="destaques" className="section-card" style={{marginTop:12}}>
-        <div style={{fontWeight:700}}>DESTAQUES</div>
-        <div className="grid products-grid" style={{marginTop:8}}>
-          {featured.map(p => (
-            <div key={p.id} className="card" onClick={()=> { setModalProduct(p); setModalChoice(null) }}>
-              <img src={p.image} alt={p.name} loading="lazy" decoding="async" />
-              <div className="info">
-                <div className="row product-header" style={{alignItems:'center'}}>
-                  <div className="product-name">{p.name}</div>
-                  {p.optionsGroup?.required ? (
-                    <div className="price">A partir de R$ {(((p.promoActive ? (p.promoPrice || p.basePrice) : p.basePrice) + Math.min(...(p.optionsGroup.options || []).map(o => o.priceDelta || 0), 0)).toFixed(2))}</div>
-                  ) : (
-                    <div className="price">R$ {(p.promoActive ? (p.promoPrice || p.basePrice) : p.basePrice).toFixed(2)}</div>
-                  )}
-                </div>
+        <div className="feed-main">
+          <section id="promocoes" className="section-card promo-section-card">
+            <div className="section-heading-row">
+              <div>
+                <div className="section-kicker">Promoções em destaque</div>
+                <h2 className="section-heading">Ofertas para pedir agora</h2>
+              </div>
+              <div className="promo-carousel-actions">
+                <button type="button" className="promo-carousel-arrow" onClick={() => scrollFeatured(-1)} aria-label="Voltar promoções">‹</button>
+                <button type="button" className="promo-carousel-arrow" onClick={() => scrollFeatured(1)} aria-label="Avançar promoções">›</button>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
 
-      <div style={{marginTop:8}}>
-        <div style={{display:'flex', gap:8, alignItems:'center'}}>
-          <button className="btn btn-lg catlist-trigger" onClick={()=> setShowCats(v=>!v)}>LISTAR CATEGORIAS</button>
-          {selectedCategory && <button className="btn outline btn-lg" onClick={()=> setSelectedCategory('')}>LIMPAR FILTRO</button>}
-        </div>
-        <div className="field" style={{marginTop:10, maxWidth:360}}>
-          <label className="muted">Ir para a categoria</label>
-          <select value={selectedCategory} onChange={(e)=> setSelectedCategory(e.target.value)}>
-            <option value="">Todas as categorias</option>
-            {categories.filter(cat => !categoriesAvailability[cat.id]).map(cat => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            ))}
-          </select>
-        </div>
-        {showCats && (
-          <div className="cats-dropdown" style={{marginTop:10}}>
-            {categories.filter(cat => !categoriesAvailability[cat.id]).map(cat => (
-              <div key={cat.id} className="cats-item" onClick={()=> { setSelectedCategory(cat.id); setShowCats(false) }}>
-                <span>{cat.name}</span>
-                <span>›</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Banner de cupons como na imagem (lado esquerdo, abaixo de destaques) */}
-      <div id="categorias" className="section-card" style={{marginTop:12}}>
-        <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
-          <div>
-            <div style={{fontWeight:700}}>Que tal usar um cupom?</div>
-            <div className="muted">Consulte os cupons ativos</div>
-          </div>
-<Button variant="outline" onClick={()=> setShowCoupons(true)}>VER CUPONS</Button>
-        </div>
-        {showCoupons && <CouponsModal onClose={()=> setShowCoupons(false)} />}
-      </div>
-
-      {/* Filtros e busca (Desktop somente) */}
-      <div className="section-card desktop-only">
-        <div className="row" style={{alignItems:'center'}}>
-          {/* Campo de busca removido conforme solicitado */}
-          <div className="field" style={{flex:1}}>
-            <label className="muted">Ordenar por preço</label>
-            <select value={priceSort} onChange={(e)=> setPriceSort(e.target.value)}>
-              <option value="none">Padrão</option>
-              <option value="asc">Menor → Maior</option>
-              <option value="desc">Maior → Menor</option>
-            </select>
-          </div>
-          <div style={{display:'flex', alignItems:'center', gap:8}}>
-            <label className="muted">Mostrar apenas disponíveis</label>
-            <input type="checkbox" checked={showAvailableOnly} onChange={(e)=> setShowAvailableOnly(e.target.checked)} />
-          </div>
-        </div>
-      </div>
-
-      {showInfo && <EstablishmentInfoModal onClose={()=> setShowInfo(false)} />}
-
-      {/* Removido grid de categorias para usar somente o botão LISTAR CATEGORIAS */}
-
-      <div id="itens" className="section-card">
-        <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
-          <div style={{fontWeight:700}}>Itens{selectedCategory? ` • ${categories.find(c=>c.id===selectedCategory)?.name||''}`:''}</div>
-          <div style={{display:'flex', alignItems:'center', gap:8}}>
-{cart.length>0 && <Button to="/sacola" variant="secondary">Ver sacola ({cart.length})</Button>}
-          </div>
-        </div>
-        {(() => {
-          const groupsMap = {}
-          products.forEach(p => { (groupsMap[p.category] = groupsMap[p.category] || []).push(p) })
-          const visibleCats = selectedCategory? [selectedCategory] : Object.keys(groupsMap)
-          return visibleCats.map(catId => {
-            const cat = categories.find(c=> c.id===catId)
-            const items = (groupsMap[catId]||[])
-            const expanded = expandedCats[catId] !== false // default expand
-            const toggle = () => setExpandedCats(prev => ({ ...prev, [catId]: !expanded }))
-            return (
-              <div key={catId} style={{marginTop:8, borderTop:'1px solid #eee'}}>
-                <div onClick={toggle} style={{display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', padding:'8px 0'}}>
-                  <div style={{fontWeight:700}}>{cat?.name || catId}</div>
-                  <div className="muted">{expanded? 'Recolher' : 'Expandir'}</div>
-                </div>
-                {expanded && (
-                  <div className="grid products-grid" style={{marginTop:8}}>
-                    {items.map(p => {
-                      const isSoldOut = (p.autoStockControl && (p.stockQty||0) <= 0)
-                      const priceCurrent = p.promoActive? (p.promoPrice||p.basePrice) : p.basePrice
-                      return (
-                        <div key={p.id} className={`card ${isSoldOut?'soldout':''}`} onClick={()=> { setModalProduct(p); setModalChoice(null); setModalQty(1); setModalObs('') }}>
-                          <div style={{position:'relative'}}>
-                            <img src={p.image} alt={p.name} loading="lazy" decoding="async" onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} />
-                            <div className="labels">
-                              {p.promoActive && <span className="badge red">Promoção</span>}
-                              {isSoldOut && <span className="badge gray">Esgotado</span>}
-                            </div>
-                          </div>
-                          <div className="info">
-                            <div className="row product-header" style={{alignItems:'center'}}>
-                              <div className="product-name">{p.name}</div>
-                              <div style={{display:'flex', flexDirection:'column', alignItems:'flex-end'}}>
-                                <div className="price-new">
-                                  {p.optionsGroup?.required
-                                    ? `A partir de R$ ${(priceCurrent + Math.min(...(p.optionsGroup.options || []).map(o => o.priceDelta || 0), 0)).toFixed(2)}`
-                                    : `R$ ${priceCurrent.toFixed(2)}`}
-                                </div>
-                                {p.promoActive && (
-                                  <div className="price-old">{`R$ ${(p.basePrice + (p.optionsGroup?.required ? Math.min(...(p.optionsGroup.options || []).map(o => o.priceDelta || 0), 0) : 0)).toFixed(2)}`}</div>
-                                )}
-                              </div>
-                            </div>
-                            {p.descShort && <div className="desc-short">{String(p.descShort).length>100? `${String(p.descShort).slice(0,100)}…` : p.descShort}</div>}
-                          </div>
+            <div className="promo-carousel" ref={promoScrollerRef}>
+              {featured.map((p, index) => {
+                const badge = getPromoBadge(p, index)
+                const currentPrice = p.promoActive ? (p.promoPrice || p.basePrice) : p.basePrice
+                const originalPrice = p.basePrice
+                const discountPercent = p.promoActive && originalPrice > currentPrice
+                  ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100)
+                  : null
+                return (
+                  <article key={p.id} className="promo-card" onClick={()=> { setModalProduct(p); setModalChoice(null); setModalQty(1); setModalObs('') }}>
+                    <div className="promo-card-media">
+                      <img src={p.image} alt={p.name} loading="lazy" decoding="async" onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} />
+                      <span className={`badge ${badge.tone} promo-card-badge`}>{badge.label}</span>
+                    </div>
+                    <div className="promo-card-body">
+                      <div className="promo-card-title">{p.name}</div>
+                      <div className="promo-card-desc">{p.descShort || 'Escolha ideal para matar a fome com sabor e capricho.'}</div>
+                      <div className="promo-card-pricing">
+                        <div className="promo-card-price-line">
+                          <span className="promo-card-price-current">R$ {currentPrice.toFixed(2)}</span>
+                          {originalPrice > currentPrice && <span className="promo-card-price-old">R$ {originalPrice.toFixed(2)}</span>}
                         </div>
-                      )
-                    })}
-                  </div>
-                )}
+                        {discountPercent != null && <span className="badge green promo-card-discount">-{discountPercent}%</span>}
+                      </div>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+
+          <section className="section-card catalog-toolbar-card">
+            <div className="section-heading-row">
+              <div>
+                <div className="section-kicker">Navegue pelo cardápio</div>
+                <h2 className="section-heading">Categorias e produtos</h2>
               </div>
-            )
-          })
-        })()}
-      
-      {modalProduct && (
-        <ProductModal
-          product={modalProduct}
-          choice={modalChoice}
-          setChoice={setModalChoice}
-          qty={modalQty}
-          setQty={setModalQty}
-          obs={modalObs}
-          setObs={setModalObs}
-          onConfirm={confirmModalAdd}
-          onClose={()=> { setModalProduct(null); setModalChoice(null) }}
-        />
-      )}
-      </div>
+              {selectedCategory && (
+                <Button variant="outline" onClick={() => handleCategorySelect('')}>Limpar filtro</Button>
+              )}
+            </div>
+            <div className="catalog-toolbar-row">
+              <div className="catalog-toolbar-select">
+                <label className="muted">Ir para a categoria</label>
+                <select value={selectedCategory} onChange={(e)=> handleCategorySelect(e.target.value)}>
+                  <option value="">Todas as categorias</option>
+                  {visibleCategories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="catalog-toolbar-tags">
+                {visibleCategories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    className={`catalog-tag ${selectedCategory === cat.id ? 'active' : ''}`}
+                    onClick={() => handleCategorySelect(cat.id)}
+                  >
+                    <span>{getCategoryEmoji(cat.name)}</span>
+                    <span>{cat.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
 
-  </div>{/* /.feed-main */}
+          <section id="catalog-sections" className="catalog-sections">
+            {(() => {
+              const groupsMap = {}
+              products.forEach(p => { (groupsMap[p.category] = groupsMap[p.category] || []).push(p) })
+              const visibleCats = selectedCategory ? [selectedCategory] : Object.keys(groupsMap)
+              return visibleCats.map(catId => {
+                const cat = categories.find(c => c.id === catId)
+                const items = (groupsMap[catId] || [])
+                const expanded = expandedCats[catId] !== false
+                const toggle = () => setExpandedCats(prev => ({ ...prev, [catId]: !expanded }))
+                return (
+                  <section key={catId} id={`category-${catId}`} className="section-card category-section-card">
+                    <div className="category-section-header">
+                      <div className="category-section-title">
+                        <span>{getCategoryEmoji(cat?.name)}</span>
+                        <span>{String(cat?.name || catId).toUpperCase()}</span>
+                      </div>
+                      <button type="button" className="category-section-toggle" onClick={toggle}>
+                        {expanded ? 'Ocultar' : 'Mostrar'}
+                      </button>
+                    </div>
 
-      {/* Painel lateral (direita) com Fidelidade e mini sacola */}
-      <HomeAside onOpenCoupons={()=> setShowCoupons(true)} />
+                    {expanded && (
+                      <div className="menu-grid">
+                        {items.map(p => {
+                          const isSoldOut = (p.autoStockControl && (p.stockQty||0) <= 0)
+                          const priceCurrent = p.promoActive ? (p.promoPrice || p.basePrice) : p.basePrice
+                          const oldPrice = p.promoActive ? p.basePrice : null
+                          return (
+                            <article
+                              key={p.id}
+                              className={`menu-product-card ${isSoldOut ? 'is-soldout' : ''}`}
+                              onClick={()=> { setModalProduct(p); setModalChoice(null); setModalQty(1); setModalObs('') }}
+                            >
+                              <div className="menu-product-copy">
+                                <div className="menu-product-name">{p.name}</div>
+                                {p.descShort && <div className="menu-product-desc">{String(p.descShort).length > 120 ? `${String(p.descShort).slice(0, 120)}…` : p.descShort}</div>}
+                                <div className="menu-product-price-wrap">
+                                  <span className="menu-product-price">
+                                    {p.optionsGroup?.required
+                                      ? `A partir de R$ ${(priceCurrent + Math.min(...(p.optionsGroup.options || []).map(o => o.priceDelta || 0), 0)).toFixed(2)}`
+                                      : `R$ ${priceCurrent.toFixed(2)}`}
+                                  </span>
+                                  {oldPrice != null && <span className="menu-product-price-old">R$ {oldPrice.toFixed(2)}</span>}
+                                </div>
+                              </div>
 
+                              <div className="menu-product-media">
+                                <img src={p.image} alt={p.name} loading="lazy" decoding="async" onError={(e)=> { e.currentTarget.src = DEFAULT_PRODUCT_PLACEHOLDER }} />
+                                {isSoldOut && <span className="soldout-ribbon">Esgotado</span>}
+                              </div>
+                            </article>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )
+              })
+            })()}
+          </section>
+
+          {showInfo && <EstablishmentInfoModal onClose={()=> setShowInfo(false)} />}
+          {showCoupons && <CouponsModal onClose={()=> setShowCoupons(false)} />}
+
+          {modalProduct && (
+            <ProductModal
+              product={modalProduct}
+              choice={modalChoice}
+              setChoice={setModalChoice}
+              qty={modalQty}
+              setQty={setModalQty}
+              obs={modalObs}
+              setObs={setModalObs}
+              onConfirm={confirmModalAdd}
+              onClose={()=> { setModalProduct(null); setModalChoice(null) }}
+            />
+          )}
+        </div>{/* /.feed-main */}
+
+        <HomeAside onOpenCoupons={()=> setShowCoupons(true)} openStatus={openStatus} />
       </div>{/* /.feed-layout */}
 
       {showCepModal && <CepModal onClose={()=> setShowCepModal(false)} />}
+      {cart.length > 0 && (
+        <Link className="mobile-cart-strip mobile-only" to="/sacola">
+          <span className="mobile-cart-strip-label">
+            <svg className="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12v20l-2-2-2 2-2-2-2 2-2-2-2 2V2z"/></svg>
+            Ver sacola
+          </span>
+          <span className="mobile-cart-strip-total">R$ {cartSubtotal.toFixed(2)}</span>
+        </Link>
+      )}
       <Footer />
       <Tabs />
     </div>
@@ -807,7 +923,7 @@ function CouponsModal({ onClose }){
   )
 }
 
-function HomeAside({ onOpenCoupons }){
+function HomeAside({ onOpenCoupons, openStatus }){
   const navigate = useNavigate()
   const { cart, setCart } = useContext(CartContext)
   const { coupon } = useContext(CouponContext)
@@ -824,6 +940,12 @@ function HomeAside({ onOpenCoupons }){
   ) : 0
   const effectiveFee = deliveryFee || 0
   const total = subtotal - discount + effectiveFee
+  const isStoreOpen = openStatus?.status === 'open'
+  const ctaLabel = !isStoreOpen
+    ? 'Estabelecimento fechado'
+    : cart.length === 0
+      ? 'Sacola vazia'
+      : `Ver sacola${cart.length > 0 ? ` • ${cart.length} item${cart.length > 1 ? 's' : ''}` : ''}`
 
   const computeEta = (addr) => {
     if (addr?.etaMinMinutes || addr?.etaMaxMinutes) {
@@ -844,136 +966,120 @@ function HomeAside({ onOpenCoupons }){
 
   return (
     <aside className="feed-aside">
-      <div className="section-card loyalty-card">
-        <div style={{display:'flex', justifyContent:'flex-start', alignItems:'center', gap:8}}>
-          <div style={{display:'flex', alignItems:'center', gap:8}}>
-            {/* Ícone de presente simples */}
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <rect x="3" y="9" width="18" height="12" rx="3" stroke="#1f2937" strokeWidth="1.5"/>
-              <path d="M3 12h18" stroke="#1f2937" strokeWidth="1.5"/>
-              <path d="M12 9v12" stroke="#1f2937" strokeWidth="1.5"/>
-              <path d="M8.5 6.5c0-1.38 1.12-2.5 2.5-2.5 1.1 0 2.04.7 2.38 1.68M15.5 6.5c0-1.38-1.12-2.5-2.5-2.5-.62 0-1.19.23-1.62.61" stroke="#1f2937" strokeWidth="1.5"/>
-            </svg>
-            <div style={{fontWeight:700}}>Programa de fidelidade</div>
+      <div className="home-sidebar-panel">
+        <div className="home-sidebar-card delivery-summary-card">
+          <div className="sidebar-card-header">
+            <div>
+              <div className="sidebar-card-title">Calcular taxa e tempo de entrega</div>
+              <div className="sidebar-card-subtitle">Consulte frete, previsao e status do pedido.</div>
+            </div>
+            <button className="sidebar-icon-button" onClick={()=> setShowDeliveryModal(true)} aria-label="Abrir opcoes de entrega">›</button>
           </div>
-        </div>
-        <div className="muted" style={{marginTop:6}}>A cada R$ 1,00 em compras você ganha 1 ponto que pode ser trocado por prêmios.</div>
-        {auth?.loggedIn ? (
-          <div style={{marginTop:6}}>Para participar do programa de fidelidade <a href="#" onClick={(e)=>{e.preventDefault(); navigate('/fidelidade')}}>clique aqui</a> e complete seu cadastro!</div>
-        ) : (
-          <div className="muted" style={{marginTop:6}}>Os novos clientes ganham automaticamente 10 pontos.</div>
-        )}
-      </div>
-
-      <div className="section-card mini-cart">
-        {/* Cabeçalho de entrega/endereço */}
-        {!auth?.address ? (
-          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', gap:8}}>
-            <div style={{display:'flex', alignItems:'center', gap:8}}>
-              {/* Ícone localização com interrogação */}
+          {!auth?.address ? (
+            <div className="delivery-summary-empty">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 21s-7-6.2-7-11a7 7 0 1114 0c0 4.8-7 11-7 11z" stroke="#374151" strokeWidth="1.5"/>
                 <text x="12" y="13" textAnchor="middle" fontSize="10" fill="#374151">?</text>
               </svg>
-              <div style={{fontWeight:700}}>Calcular taxa e tempo de entrega</div>
+              <span>Informe seu endereco para ver a taxa e o prazo.</span>
             </div>
-            <button className="btn outline btn-sm" onClick={()=> setShowDeliveryModal(true)} aria-label="Definir endereço">›</button>
+          ) : (
+            <div className="delivery-summary-content">
+              <div className="delivery-summary-line">
+                <span className="delivery-chip">{auth?.deliveryType === 'retirada' ? 'Retirada' : 'Entrega'}</span>
+                <span className="muted">{auth?.deliveryType === 'retirada' ? 'Sem taxa de entrega' : `Entrega em ${computeEta(auth.address)}`}</span>
+              </div>
+              <div className="delivery-summary-address">
+                {auth.address.label ?? `${auth.address.street || ''}${auth.address.number ? ', ' + auth.address.number : ''}${auth.address.neighborhood ? ' - ' + auth.address.neighborhood : ''}${(auth.address.city || auth.address.uf) ? ` • ${[auth.address.city, auth.address.uf].filter(Boolean).join('/')}` : ''}`}
+              </div>
+              <div className="delivery-summary-fee">
+                <span>Taxa</span>
+                <strong>{deliveryFee!=null ? `R$ ${effectiveFee.toFixed(2)}` : '—'}</strong>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="home-sidebar-card mini-cart-card">
+          <div className="sidebar-card-header">
+            <div>
+              <div className="sidebar-card-title">Resumo da sacola</div>
+              <div className="sidebar-card-subtitle">{cart.length > 0 ? 'Confira seus itens antes de finalizar.' : 'Adicione produtos para montar seu pedido.'}</div>
+            </div>
+            <span className={`open-badge status-${openStatus?.status || 'closed'}`}>{openStatus?.label || 'Fechado'}</span>
           </div>
-        ) : (
+
+          {cart.length===0 ? (
+            <div className="mini-cart-empty">
+              <div className="mini-cart-empty-icon">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M6 8h12l-1 11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 8z" stroke="#94a3b8" strokeWidth="1.5"/>
+                  <path d="M9 8V6a3 3 0 0 1 6 0v2" stroke="#94a3b8" strokeWidth="1.5"/>
+                </svg>
+              </div>
+              <div className="mini-cart-empty-title">Sacola vazia</div>
+              <div className="muted">Escolha seus produtos para ver o resumo aqui.</div>
+            </div>
+          ) : (
+            <>
+              <div className="mini-cart-items">
+                {cart.map(item => (
+                  <div key={item.id} className="mini-cart-item">
+                    <img src={item.image} alt={item.name} loading="lazy" decoding="async" />
+                    <div className="info">
+                      <div className="title">{item.name}</div>
+                      <div className="muted">R$ {(item.unitPrice).toFixed(2)} • {item.qty}x</div>
+                      <div className="mini-cart-actions">
+                        <button className="mini-cart-qty-btn" onClick={()=> decQty(item.id)}>-</button>
+                        <button className="mini-cart-qty-btn" onClick={()=> incQty(item.id)}>+</button>
+                        <button className="mini-cart-remove-btn" onClick={()=> removeItem(item.id)}>Remover</button>
+                      </div>
+                    </div>
+                    <div className="price">R$ {(item.unitPrice * item.qty).toFixed(2)}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="price-box sidebar-price-box">
+                <div className="price-row"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
+                <div className="price-row"><span>Desconto</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
+                <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${effectiveFee.toFixed(2)}` : '—'}</span></div>
+                <div className="price-row total"><span>Total</span><span>R$ {total.toFixed(2)}</span></div>
+              </div>
+
+              <button type="button" className="coupon-trigger-card" onClick={onOpenCoupons}>
+                <div>
+                  <div className="coupon-trigger-title">{coupon ? (coupon.label || 'Cupom aplicado') : 'Tem um cupom?'}</div>
+                  <div className="coupon-trigger-subtitle">{coupon ? 'Clique para revisar o codigo aplicado' : 'Clique e insira o codigo'}</div>
+                </div>
+                <span aria-hidden="true">›</span>
+              </button>
+            </>
+          )}
+
+          <button
+            type="button"
+            className={`sidebar-main-cta ${(!isStoreOpen || cart.length===0) ? 'disabled' : ''}`}
+            disabled={!isStoreOpen || cart.length===0}
+            onClick={()=> navigate('/sacola')}
+          >
+            {ctaLabel}
+          </button>
+        </div>
+      </div>
+
+      <div className="home-sidebar-card loyalty-card">
+        <div className="sidebar-card-header">
           <div>
-            {auth?.deliveryType === 'retirada' ? (
-              <>
-                <div style={{display:'flex', alignItems:'center', gap:8}}>
-                  {/* Ícone de pessoa/retirada simples */}
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M12 6a3 3 0 110 6 3 3 0 010-6z" stroke="#111827" strokeWidth="1.5"/>
-                    <path d="M6 20c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="#111827" strokeWidth="1.5"/>
-                  </svg>
-                  <div style={{fontWeight:700, color:'#111827', minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>Retirar no local</div>
-                </div>
-                <div className="muted" style={{marginTop:4, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>
-                  {auth.address.label ?? `${auth.address.street || ''}${auth.address.number ? ', ' + auth.address.number : ''}${auth.address.neighborhood ? ' - ' + auth.address.neighborhood : ''}${(auth.address.city || auth.address.uf) ? ` • ${[auth.address.city, auth.address.uf].filter(Boolean).join('/')}` : ''}`}
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{display:'flex', alignItems:'center', gap:8}}>
-                  {/* Ícone de moto simples */}
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle cx="6" cy="17" r="3" stroke="#111827" strokeWidth="1.5"/>
-                    <circle cx="18" cy="17" r="3" stroke="#111827" strokeWidth="1.5"/>
-                    <path d="M9 17h6l2-5h3" stroke="#111827" strokeWidth="1.5"/>
-                    <path d="M8 12h4l-1.5-3H7" stroke="#111827" strokeWidth="1.5"/>
-                  </svg>
-                  <div style={{fontWeight:700, color:'#111827', minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>
-                    {auth.address.label ?? `${auth.address.street}, ${auth.address.city}`}
-                  </div>
-                </div>
-                <div className="muted" style={{marginTop:4}}>
-                  Entrega em {computeEta(auth.address)} • {deliveryFee!=null? `R$ ${deliveryFee.toFixed(2)}` : '—'}
-                </div>
-              </>
-            )}
+            <div className="sidebar-card-title">Programa de fidelidade</div>
+            <div className="sidebar-card-subtitle">Acumule pontos e acompanhe seu saldo.</div>
           </div>
-        )}
-
-        {/* Conteúdo da sacola */}
-        {cart.length===0 ? (
-          <div style={{textAlign:'center', padding:'20px 0'}}>
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{opacity:.6}}>
-              <path d="M6 8h12l-1 11a2 2 0 01-2 2H9a2 2 0 01-2-2L6 8z" stroke="#6b7280" strokeWidth="1.5"/>
-              <path d="M9 8V6a3 3 0 016 0v2" stroke="#6b7280" strokeWidth="1.5"/>
-            </svg>
-            <div className="muted" style={{marginTop:6, fontSize:16}}>Sacola vazia</div>
-          </div>
+        </div>
+        <div className="muted" style={{marginTop:6}}>A cada R$ 1,00 em compras você ganha 1 ponto que pode ser trocado por prêmios.</div>
+        {auth?.loggedIn ? (
+          <div style={{marginTop:6}}>Para participar do programa de fidelidade <a href="#" onClick={(e)=>{e.preventDefault(); navigate('/fidelidade')}}>clique aqui</a> e complete seu cadastro.</div>
         ) : (
-          <div className="mini-cart-items">
-            {cart.map(item => (
-              <div key={item.id} className="mini-cart-item">
-                <img src={item.image} alt={item.name} loading="lazy" decoding="async" />
-                <div className="info">
-                  <div className="title">{item.name}</div>
-                  <div className="muted">R$ {(item.unitPrice).toFixed(2)} • {item.qty}x</div>
-                  <div className="row actions">
-                    <button className="btn outline btn-sm" onClick={()=> decQty(item.id)}>-</button>
-                    <button className="btn outline btn-sm" onClick={()=> incQty(item.id)}>+</button>
-                    <button className="btn outline btn-sm" onClick={()=> removeItem(item.id)}>Remover</button>
-                  </div>
-                </div>
-                <div className="price">R$ {(item.unitPrice * item.qty).toFixed(2)}</div>
-              </div>
-            ))}
-          </div>
+          <div className="muted" style={{marginTop:6}}>Os novos clientes ganham automaticamente 10 pontos.</div>
         )}
-        {/* Removida duplicação da listagem de itens da sacola */}
-
-        <div className="price-box" style={{marginTop:10}}>
-          <div className="price-row"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
-          <div className="price-row"><span>Desconto</span><span>{discount>0? `− R$ ${discount.toFixed(2)}` : 'R$ 0,00'}</span></div>
-          <div className="price-row"><span>Taxa de entrega</span><span>{deliveryFee!=null? `R$ ${effectiveFee.toFixed(2)}` : '—'}</span></div>
-          <div className="price-row total"><span>Total</span><span>R$ {total.toFixed(2)}</span></div>
-        </div>
-
-        {/* Cupom */}
-        <div className="section-card" style={{marginTop:12, padding:12}}>
-          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-            <div style={{display:'flex', alignItems:'center', gap:10}}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 7a3 3 0 013-3h10a3 3 0 013 3v3a2 2 0 11-2 2 2 2 0 112 2v3a3 3 0 01-3 3H7a3 3 0 01-3-3v-3a2 2 0 112-2 2 2 0 11-2-2V7z" stroke="#6b7280" strokeWidth="1.5"/>
-              </svg>
-              <div>
-                <div style={{fontWeight:700}}>{coupon ? (coupon.label || 'Cupom aplicado') : 'Que tal usar um cupom?'}</div>
-                <div className="muted">{coupon ? 'Cupom aplicado' : 'Consultar cupons ativos'}</div>
-              </div>
-            </div>
-            <button className="btn outline btn-sm" onClick={onOpenCoupons}>›</button>
-          </div>
-        </div>
-
-        <div className="row" style={{justifyContent:'space-between', marginTop:8}}>
-            <Button variant="outline" onClick={onOpenCoupons}>Usar cupom</Button>
-            <Button disabled={cart.length===0} onClick={()=> navigate('/sacola')}>Continuar pedido</Button>
-        </div>
         {showDeliveryModal && (
           <DeliveryOptionsModal
             onClose={()=> setShowDeliveryModal(false)}
@@ -1696,11 +1802,10 @@ function Tabs(){
 function TopNav(){
   const location = useLocation()
   const navigate = useNavigate()
-  // Ocultar barra de navegação nas rotas administrativas
-  if (location.pathname.startsWith('/admin')) return null
   const [showAccount, setShowAccount] = useState(false)
   const { auth, setAuth } = useContext(AuthContext)
   const { establishment } = useContext(EstablishmentContext)
+  const shouldHideTopNav = location.pathname.startsWith('/admin') || location.pathname === '/'
   const isActive = (path) => location.pathname === path
   const [loginPhone, setLoginPhone] = useState('')
   const loginDigits = loginPhone.replace(/\D/g, '')
@@ -1730,6 +1835,9 @@ function TopNav(){
     setAuth({ loggedIn:false, phone:'', name:'' })
     navigate('/')
   }
+
+  // Mantem a ordem dos hooks fixa entre as rotas e so oculta a UI no final.
+  if (shouldHideTopNav) return null
 
   return (
     <nav className="top-nav">
@@ -2723,19 +2831,28 @@ function AdminPanel(){
   return (
     <div className="container">
       <h2 className="page-title">Painel administrativo</h2>
+      <div className="section-card" style={{marginBottom:16}}>
+        <div style={{fontWeight:700, marginBottom:8}}>Onde configurar cada coisa</div>
+        <div className="muted">Estabelecimento: nome, logo, capa, cores, horarios, WhatsApp, ID e senha do admin.</div>
+        <div className="muted" style={{marginTop:4}}>Itens: produtos e categorias do cardapio no mesmo modulo.</div>
+        <div className="muted" style={{marginTop:4}}>Cidades: areas de entrega, bairros, CEPs e taxas.</div>
+        <div className="muted" style={{marginTop:4}}>Cupons: criacao e manutencao dos descontos.</div>
+        <div className="muted" style={{marginTop:4}}>Pedidos: acompanhamento em tempo real e mudanca de status.</div>
+        <div className="muted" style={{marginTop:4}}>Dashboard: relatorios e indicadores de vendas.</div>
+      </div>
       <div className="grid" style={{gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))'}}>
         {[
-          {label:'Estabelecimento', path:'/admin/estabelecimento'},
-          {label:'Itens', path:'/admin/itens'},
-          {label:'Cidades', path:'/admin/cidades'},
-          {label:'Cupons', path:'/admin/cupons'},
-          {label:'Pedidos', path:'/admin/pedidos'},
-          {label:'Dashboard', path:'/admin/dashboard'},
+          {label:'Estabelecimento e identidade', desc:'Nome, logo, capa, cores, horario e senha admin.', path:'/admin/estabelecimento'},
+          {label:'Itens e categorias', desc:'Cadastre produtos, categorias, promocoes e disponibilidade.', path:'/admin/itens'},
+          {label:'Cidades e entregas', desc:'Configure taxa, bairros, CEPs e regras de atendimento.', path:'/admin/cidades'},
+          {label:'Cupons', desc:'Crie e mantenha descontos e codigos promocionais.', path:'/admin/cupons'},
+          {label:'Pedidos', desc:'Acompanhe pedidos recebidos e atualize os status.', path:'/admin/pedidos'},
+          {label:'Dashboard', desc:'Veja relatorios, estatisticas e desempenho.', path:'/admin/dashboard'},
         ].map(card => (
           <div key={card.path} className="card" style={{cursor:'pointer'}} onClick={()=> navigate(card.path)}>
             <div className="info">
               <div style={{fontWeight:700}}>{card.label}</div>
-              <div className="muted">Gerenciar {card.label.toLowerCase()}.</div>
+              <div className="muted">{card.desc}</div>
             </div>
           </div>
         ))}
@@ -2850,6 +2967,8 @@ function AdminOrders(){
               <Link to="/admin/pedidos">🧁 Pedidos</Link>
               <Link to="/admin/itens">📦 Produtos</Link>
               <Link to="/admin/itens">🏷️ Categorias</Link>
+              <Link to="/admin/cupons">🎟️ Cupons</Link>
+              <Link to="/admin/cidades">🚚 Cidades</Link>
               <Link to="/admin/dashboard">📊 Relatórios</Link>
               <Link to="/admin/estabelecimento">⚙️ Configurações</Link>
             </div>
@@ -3512,17 +3631,16 @@ function AdminItems(){
   const eid = getCurrentEstabId()
   const logged = localStorage.getItem(`adminLogged_${eid}`) === 'true'
   useEffect(()=> { if(!logged) navigate('/admin') }, [logged])
-  const apiBase = API_BASE
   const [estStatus, setEstStatus] = useState(null)
-  useEffect(()=>{ fetch(`${apiBase}/api/establishment/${eid}/status`).then(r=> r.ok? r.json(): null).then(s=> setEstStatus(s)).catch(()=> setEstStatus(null)) }, [eid])
+  useEffect(()=>{ fetchApi(`/api/establishment/${eid}/status`).then(r=> r.ok? r.json(): null).then(s=> setEstStatus(s)).catch(()=> setEstStatus(null)) }, [eid])
   const [catAvailability, setCatAvailability] = useState(()=> { try { return JSON.parse(localStorage.getItem(`categoriesAvailability_${eid}`) || '{}') } catch(e){ return {} } })
   const [products, setProducts] = useState(()=> getProductsLS() || mockProducts)
   const [cats, setCats] = useState(()=> getCategoriesLS() || mockCategories)
   useEffect(()=>{
     const load = async ()=>{
       try {
-        const c = await fetch(`${apiBase}/api/categorias?establishment_id=${eid}`).then(r=> r.ok? r.json(): [])
-        const p = await fetch(`${apiBase}/api/produtos?establishment_id=${eid}`).then(r=> r.ok? r.json(): [])
+        const c = await fetchApi('/api/categorias', {}, { establishment_id: eid }).then(r=> r.ok? r.json(): [])
+        const p = await fetchApi('/api/produtos', {}, { establishment_id: eid }).then(r=> r.ok? r.json(): [])
         const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
           id: x.id,
@@ -3697,11 +3815,11 @@ function AdminItems(){
       sku: newSku.trim() || undefined,
       by_user_id: 'admin'
     }
-    fetch(`${apiBase}/api/produtos`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
+    fetchApi('/api/produtos', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
       .then(r=> r.ok? r.json(): Promise.reject(r))
       .then(()=>{
         // reload
-        return fetch(`${apiBase}/api/produtos?establishment_id=${eid}`).then(r=> r.json()).then(p=>{
+        return fetchApi('/api/produtos', {}, { establishment_id: eid }).then(r=> r.json()).then(p=>{
           const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
             id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url, category: x.category_id,
             status: x.status || 'active', available: !!x.available, descShort: x.desc_short || '', notes: x.notes || '',
@@ -3719,8 +3837,8 @@ function AdminItems(){
   const removeProduct = (id) => {
     const prod = products.find(p=> p.id===id)
     appendProductAudit({ action:'delete', by:'admin', id, name: prod?.name })
-    fetch(`${apiBase}/api/produtos/${encodeURIComponent(id)}`, { method:'DELETE', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, by_user_id: 'admin' }) })
-      .then(()=> fetch(`${apiBase}/api/produtos?establishment_id=${eid}`).then(r=> r.json()).then(p=>{
+    fetchApi(`/api/produtos/${encodeURIComponent(id)}`, { method:'DELETE', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, by_user_id: 'admin' }) })
+      .then(()=> fetchApi('/api/produtos', {}, { establishment_id: eid }).then(r=> r.json()).then(p=>{
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
           id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url || DEFAULT_PRODUCT_PLACEHOLDER, category: x.category_id,
           status: x.status || 'active', available: !!x.available, descShort: x.desc_short || '', notes: x.notes || '',
@@ -3751,8 +3869,8 @@ function AdminItems(){
       sku: fields.sku,
       category_id: fields.category,
     }
-    fetch(`${apiBase}/api/produtos/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
-      .then(()=> fetch(`${apiBase}/api/produtos?establishment_id=${eid}`).then(r=> r.json()).then(p=>{
+    fetchApi(`/api/produtos/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
+      .then(()=> fetchApi('/api/produtos', {}, { establishment_id: eid }).then(r=> r.json()).then(p=>{
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
           id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url || DEFAULT_PRODUCT_PLACEHOLDER, category: x.category_id,
           status: x.status || 'active', available: !!x.available, descShort: x.desc_short || '', notes: x.notes || '',
@@ -3777,8 +3895,8 @@ function AdminItems(){
         return
       }
     }
-    fetch(`${apiBase}/api/produtos/${encodeURIComponent(id)}/disponibilidade`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, available: !p.available, by_user_id:'admin' }) })
-      .then(()=> fetch(`${apiBase}/api/produtos?establishment_id=${eid}`).then(r=> r.json()).then(p=>{
+    fetchApi(`/api/produtos/${encodeURIComponent(id)}/disponibilidade`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, available: !p.available, by_user_id:'admin' }) })
+      .then(()=> fetchApi('/api/produtos', {}, { establishment_id: eid }).then(r=> r.json()).then(p=>{
         const prodsUi = (Array.isArray(p)? p: []).map(x=> ({
           id: x.id, name: x.name, basePrice: Number(x.base_price||0), image: x.image_url, category: x.category_id,
           status: x.status || 'active', available: !!x.available, descShort: x.desc_short || '', notes: x.notes || '',
@@ -3794,8 +3912,8 @@ function AdminItems(){
     const id = name.toLowerCase().replace(/[^a-z0-9]+/gi,'-')
     if (cats.some(c=> c.id===id)) { return }
     const image = newCatImage || DEFAULT_CAT_PLACEHOLDER
-    fetch(`${apiBase}/api/categorias`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, id, name, image_url: image }) })
-      .then(()=> fetch(`${apiBase}/api/categorias?establishment_id=${eid}`).then(r=> r.json()).then(c=>{
+    fetchApi('/api/categorias', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ establishment_id: eid, id, name, image_url: image }) })
+      .then(()=> fetchApi('/api/categorias', {}, { establishment_id: eid }).then(r=> r.json()).then(c=>{
         const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         setCats(catsUi)
         try { window.dispatchEvent(new Event('refreshMenu')) } catch(e) {}
@@ -3804,8 +3922,8 @@ function AdminItems(){
   }
   const updateCategory = (id, fields={}) => {
     const payload = { establishment_id: eid, name: fields.name, image_url: fields.image_url }
-    return fetch(`${apiBase}/api/categorias/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
-      .then(()=> fetch(`${apiBase}/api/categorias?establishment_id=${eid}`).then(r=> r.json()).then(c=>{
+    return fetchApi(`/api/categorias/${encodeURIComponent(id)}`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
+      .then(()=> fetchApi('/api/categorias', {}, { establishment_id: eid }).then(r=> r.json()).then(c=>{
     const catsUi = (Array.isArray(c)? c: []).map(x=> ({ id: x.id, name: x.name, image: x.image_url || DEFAULT_CAT_PLACEHOLDER }))
         setCats(catsUi)
         try { window.dispatchEvent(new Event('refreshMenu')) } catch(e) {}
@@ -4821,7 +4939,6 @@ function EstabConfig(){
   const navigate = useNavigate()
   const location = useLocation()
   const isAdmin = location.pathname.startsWith('/admin')
-  const apiBase = API_BASE
   const { establishment, setEstablishment } = useContext(EstablishmentContext)
   const dayLabels = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
   const ensureSevenDays = (inHours) => {

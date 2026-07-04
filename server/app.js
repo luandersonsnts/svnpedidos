@@ -283,6 +283,48 @@ export const createApp = async () => {
     })
   }
 
+  // Alinha o ambiente local com o ID padrão usado no frontend para evitar 404 em dev.
+  const storefrontRow = await database.prepare('SELECT id FROM establishments WHERE id=?').get('mundodocen5')
+  if (!storefrontRow) {
+    await withDbRetry({
+      label: 'seed.establishment.storefront',
+      operation: async () => {
+        const source = await database.prepare('SELECT * FROM establishments WHERE id=?').get('default')
+        if (source) {
+          return database.prepare(`
+            INSERT INTO establishments (
+              id, name, city, uf, status, billing_status, created_at, updated_at,
+              avatar_url, cover_url, instagram, hours_json, payment_methods_json,
+              base_address_json, delivery_rules_json, theme_json
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).run(
+            'mundodocen5',
+            source.name || 'Mundo Doce - Bolos Caseiros',
+            source.city || 'Caieiras',
+            source.uf || 'SP',
+            source.status || 'active',
+            source.billing_status || 'paid',
+            source.created_at || nowIso(),
+            nowIso(),
+            source.avatar_url || null,
+            source.cover_url || null,
+            source.instagram || null,
+            source.hours_json || null,
+            source.payment_methods_json || null,
+            source.base_address_json || null,
+            source.delivery_rules_json || null,
+            source.theme_json || null,
+          )
+        }
+
+        return database.prepare('INSERT INTO establishments (id,name,city,uf,status,billing_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
+          .run('mundodocen5', 'Mundo Doce - Bolos Caseiros', 'Caieiras', 'SP', 'active', 'paid', nowIso(), nowIso())
+      },
+      context: { driver: database.mode },
+      writeKey: 'seed.establishment.storefront',
+    })
+  }
+
   const usageStatsHandler = (req, res) => {
     if (!ensureUsageStatsAccess(req, res)) return
     res.json({

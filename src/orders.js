@@ -1,4 +1,4 @@
-import { API_BASE } from './config'
+import { fetchApi } from './config'
 
 export const ORDER_STATUSES = {
   RECEBIDO: 'RECEBIDO',
@@ -18,21 +18,7 @@ export const ORDER_STATUS_LABELS = {
   [ORDER_STATUSES.CANCELADO]: 'Cancelado',
 }
 
-const normalizeBase = (value) => String(value || '').replace(/\/+$/, '')
 const normalizePhone = (raw) => String(raw || '').replace(/\D/g, '').slice(-11)
-const baseUrl = normalizeBase(API_BASE)
-
-const buildUrl = (path, params) => {
-  const url = new URL(`${baseUrl}${path}`, window.location.origin)
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        url.searchParams.set(key, value)
-      }
-    })
-  }
-  return baseUrl ? url.toString() : `${url.pathname}${url.search}`
-}
 
 const readJson = (key, fallback) => {
   try {
@@ -87,14 +73,14 @@ const normalizeOrder = (order) => {
   }
 }
 
-const fetchJson = async (url, options = {}) => {
-  const response = await fetch(url, {
+const fetchJson = async (path, options = {}, params) => {
+  const response = await fetchApi(path, {
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {}),
     },
     ...options,
-  })
+  }, params)
 
   let data = null
   try {
@@ -148,24 +134,24 @@ export const createClientOrderId = () => {
 }
 
 export const fetchOrders = async ({ establishmentId, phone }) => {
-  const data = await fetchJson(buildUrl('/api/pedidos', {
+  const data = await fetchJson('/api/pedidos', {}, {
     establishment_id: establishmentId,
     phone: normalizePhone(phone),
-  }))
+  })
   const orders = (data?.orders || []).map(normalizeOrder)
   setCachedOrders(establishmentId, orders)
   return orders
 }
 
 export const fetchOrderById = async ({ establishmentId, orderId }) => {
-  const data = await fetchJson(buildUrl(`/api/pedidos/${encodeURIComponent(orderId)}`, {
+  const data = await fetchJson(`/api/pedidos/${encodeURIComponent(orderId)}`, {}, {
     establishment_id: establishmentId,
-  }))
+  })
   return normalizeOrder(data?.order)
 }
 
 export const submitOrder = async (payload) => {
-  const data = await fetchJson(buildUrl('/api/pedidos'), {
+  const data = await fetchJson('/api/pedidos', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
@@ -176,7 +162,7 @@ export const submitOrder = async (payload) => {
 }
 
 export const updateOrderStatus = async ({ establishmentId, orderId, status, changedBy, note }) => {
-  const data = await fetchJson(buildUrl(`/api/pedidos/${encodeURIComponent(orderId)}/status`), {
+  const data = await fetchJson(`/api/pedidos/${encodeURIComponent(orderId)}/status`, {
     method: 'PUT',
     body: JSON.stringify({
       establishment_id: establishmentId,

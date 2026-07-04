@@ -1,15 +1,7 @@
-import { API_BASE } from './config'
+import { fetchApi } from './config'
 
-const normalizeBase = (value) => String(value || '').replace(/\/+$/, '')
-const baseUrl = normalizeBase(API_BASE)
-
-const buildUrl = (path) => {
-  const url = new URL(`${baseUrl}${path}`, window.location.origin)
-  return baseUrl ? url.toString() : `${url.pathname}${url.search}`
-}
-
-const fetchJson = async (url, options = {}) => {
-  const response = await fetch(url, {
+const fetchJson = async (path, options = {}) => {
+  const response = await fetchApi(path, {
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {}),
@@ -49,12 +41,12 @@ export const normalizeEstablishment = (row) => {
 }
 
 export const fetchEstablishment = async (establishmentId) => {
-  const data = await fetchJson(buildUrl(`/api/establishment/${encodeURIComponent(establishmentId)}`))
+  const data = await fetchJson(`/api/establishment/${encodeURIComponent(establishmentId)}`)
   return normalizeEstablishment(data)
 }
 
 export const saveEstablishment = async (payload) => {
-  const data = await fetchJson(buildUrl('/api/establishment'), {
+  const data = await fetchJson('/api/establishment', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
@@ -62,11 +54,11 @@ export const saveEstablishment = async (payload) => {
 }
 
 export const fetchEstablishmentStatus = async (establishmentId) => {
-  return fetchJson(buildUrl(`/api/establishment/${encodeURIComponent(establishmentId)}/status`))
+  return fetchJson(`/api/establishment/${encodeURIComponent(establishmentId)}/status`)
 }
 
 export const fetchDeliveryQuote = async (establishmentId, address) => {
-  const data = await fetchJson(buildUrl(`/api/establishment/${encodeURIComponent(establishmentId)}/delivery-quote`), {
+  const data = await fetchJson(`/api/establishment/${encodeURIComponent(establishmentId)}/delivery-quote`, {
     method: 'POST',
     body: JSON.stringify(address || {}),
   })
